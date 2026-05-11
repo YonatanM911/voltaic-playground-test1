@@ -36,7 +36,7 @@ function toRaw(v: number | string | null): string {
   return String(v);
 }
 
-export function EditDialog({ component, onClose, onSave, onDelete }: Props) {
+export function EditDialog({ component, onClose, onSave, onUpdate, onDelete }: Props) {
   const [voltage, setVoltage] = useState<FieldState>({ raw: "", error: null });
   const [current, setCurrent] = useState<FieldState>({ raw: "", error: null });
   const [resistance, setResistance] = useState<FieldState>({ raw: "", error: null });
