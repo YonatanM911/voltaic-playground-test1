@@ -15,11 +15,9 @@ const PALETTE_ITEMS: ComponentType[] = [
   "multimeter",
 ];
 
-interface Props {
-  onPick: (type: ComponentType) => void;
-}
+export const PALETTE_DND_TYPE = "application/x-voltica-component";
 
-export function Palette({ onPick }: Props) {
+export function Palette() {
   return (
     <div
       dir="rtl"
@@ -27,16 +25,21 @@ export function Palette({ onPick }: Props) {
     >
       <div className="mx-auto flex max-w-screen-xl items-stretch gap-3 overflow-x-auto px-4 py-3">
         {PALETTE_ITEMS.map((t) => (
-          <button
+          <div
             key={t}
-            onClick={() => onPick(t)}
-            className="flex min-w-[110px] flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-2 text-foreground transition hover:border-primary hover:bg-accent"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(PALETTE_DND_TYPE, t);
+              e.dataTransfer.effectAllowed = "copy";
+            }}
+            className="flex min-w-[110px] cursor-grab flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-2 text-foreground transition hover:border-primary hover:bg-accent active:cursor-grabbing"
+            title="גרור אל הלוח"
           >
             <div className="flex h-10 items-center justify-center">
               <PaletteSymbol type={t} />
             </div>
             <div className="text-xs font-medium">{COMPONENT_LABEL_HE[t]}</div>
-          </button>
+          </div>
         ))}
       </div>
     </div>

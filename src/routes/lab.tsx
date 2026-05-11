@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { LabCanvas, type Tool } from "@/components/lab/LabCanvas";
 import { LabToolbar } from "@/components/lab/LabToolbar";
@@ -9,7 +9,6 @@ import {
   type PlacedComponent,
   CAPABILITIES,
   GRID,
-  snap,
 } from "@/lib/lab/types";
 import { solve } from "@/lib/lab/solver";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
@@ -56,24 +55,21 @@ function LabPage() {
   const [tool, setTool] = useState<Tool>("select");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Apply persisted theme on mount (the home/settings pages own the value).
   useEffect(() => {
     applyTheme(getInitialTheme());
   }, []);
 
   const solved = useMemo(() => solve(components), [components]);
 
-  const handlePick = (type: ComponentType) => {
-    // place new component near center of viewport, snapped to grid.
-    const x = snap(window.innerWidth / 2);
-    const y = snap(window.innerHeight / 2);
+  const handleDrop = (type: ComponentType, world: { x: number; y: number }) => {
     const id = newId();
     const c: PlacedComponent = {
       id,
       type,
-      x,
-      y,
+      x: world.x,
+      y: world.y,
       rotation: 0,
       voltage: null,
       current: null,
@@ -81,6 +77,7 @@ function LabPage() {
       ...defaultsFor(type),
     } as PlacedComponent;
     setComponents((prev) => [...prev, c]);
+    setSelectedIds(new Set([id]));
   };
 
   const handleSave = (next: PlacedComponent) => {
@@ -93,6 +90,71 @@ function LabPage() {
     setEditingId(null);
   };
 
+  const rotateSelected = useCallback(() => {
+    setComponents((prev) => {
+      const ids = selectedIds.size > 0
+        ? selectedIds
+        : prev.length > 0
+        ? new Set([prev[prev.length - 1].id])
+        : new Set<string>();
+      if (ids.size === 0) return prev;
+      const order: PlacedComponent["rotation"][] = [0, 90, 180, 270];
+      return prev.map((c) =>
+        ids.has(c.id)
+          ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] }
+          : c
+      );
+    });
+  }, [selectedIds]);
+
+  const deleteSelected = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setComponents((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+    setSelectedIds(new Set());
+  }, [selectedIds]);
+
+  const copySelected = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setComponents((prev) => {
+      const newOnes: PlacedComponent[] = [];
+      const newIds: string[] = [];
+      prev.forEach((c) => {
+        if (selectedIds.has(c.id)) {
+          const id = newId();
+          newIds.push(id);
+          newOnes.push({ ...c, id, x: c.x + GRID * 2, y: c.y + GRID * 2 });
+        }
+      });
+      // shift selection to copies after state commit
+      queueMicrotask(() => setSelectedIds(new Set(newIds)));
+      return [...prev, ...newOnes];
+    });
+  }, [selectedIds]);
+
+  // keyboard handling
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "r" || e.key === "R") {
+        rotateSelected();
+        e.preventDefault();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedIds.size > 0) {
+          deleteSelected();
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "d" || e.key === "D")) {
+        copySelected();
+        e.preventDefault();
+      } else if (e.key === "Escape") {
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rotateSelected, deleteSelected, copySelected, selectedIds]);
+
   const editing = components.find((c) => c.id === editingId) ?? null;
 
   return (
@@ -103,23 +165,19 @@ function LabPage() {
         tool={tool}
         solve={solved}
         onQuickClick={(id) => setEditingId(id)}
+        onDropComponent={handleDrop}
+        selectedIds={selectedIds}
+        setSelectedIds={setSelectedIds}
+        onCopySelected={copySelected}
+        onDeleteSelected={deleteSelected}
       />
       <LabToolbar
         tool={tool}
         setTool={setTool}
         onClear={() => setConfirmClear(true)}
-        onRotateSelected={() => {
-          setComponents((prev) => {
-            if (prev.length === 0) return prev;
-            const last = prev[prev.length - 1];
-            const rotations: PlacedComponent["rotation"][] = [0, 90, 180, 270];
-            const next = rotations[(rotations.indexOf(last.rotation) + 1) % 4];
-            return [...prev.slice(0, -1), { ...last, rotation: next }];
-          });
-        }}
+        onRotateSelected={rotateSelected}
       />
 
-      {/* Unknowns / solution panel */}
       {solved.unknowns.length > 0 && (
         <div
           dir="rtl"
@@ -140,7 +198,7 @@ function LabPage() {
         </div>
       )}
 
-      <Palette onPick={handlePick} />
+      <Palette />
 
       <EditDialog
         component={editing}
@@ -165,6 +223,7 @@ function LabPage() {
             <AlertDialogAction
               onClick={() => {
                 setComponents([]);
+                setSelectedIds(new Set());
                 setConfirmClear(false);
               }}
             >
@@ -173,9 +232,6 @@ function LabPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* unused import guard */}
-      <div className="hidden">{GRID}</div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Home, Settings, Hand, MousePointer2, Eraser, RotateCw } from "lucide-react";
+import { Home, Settings, Hand, MousePointer2, Trash2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Tool } from "./LabCanvas";
 
@@ -58,7 +58,7 @@ export function LabToolbar({ tool, setTool, onClear, onRotateSelected }: Props) 
         onClick={onClear}
         title="נקה לוח"
       >
-        <Eraser className="size-5" />
+        <Trash2 className="size-5" />
       </Button>
     </div>
   );
