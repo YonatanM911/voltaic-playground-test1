@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 interface Props {
   component: PlacedComponent | null;
@@ -103,6 +104,17 @@ export function EditDialog({ component, onClose, onSave, onDelete }: Props) {
             state={resistance}
             onChange={(raw) => setResistance({ raw, error: null })}
           />
+          {component.type === "switch" && (
+            <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <Label>מצב המפסק (סגור = מוליך)</Label>
+              <Switch
+                checked={!!component.closed}
+                onCheckedChange={(v) =>
+                  onSave({ ...component, closed: v })
+                }
+              />
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             הקלד מספר לערך קבוע, או שם נעלם המתחיל באות באנגלית (לדוגמה t1).
           </p>
