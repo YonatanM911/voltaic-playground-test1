@@ -111,7 +111,7 @@ export function EditDialog({ component, onClose, onSave, onUpdate, onDelete }: P
               <Switch
                 checked={!!component.closed}
                 onCheckedChange={(v) =>
-                  onSave({ ...component, closed: v })
+                  onUpdate({ ...component, closed: v })
                 }
               />
             </div>

@@ -146,6 +146,9 @@ function LabPage() {
         component={editing}
         onClose={() => setEditingId(null)}
         onSave={handleSave}
+        onUpdate={(next) =>
+          setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)))
+        }
         onDelete={handleDelete}
       />
 
