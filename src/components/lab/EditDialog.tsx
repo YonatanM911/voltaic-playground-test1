@@ -22,6 +22,7 @@ interface Props {
   component: PlacedComponent | null;
   onClose: () => void;
   onSave: (next: PlacedComponent) => void;
+  onUpdate: (next: PlacedComponent) => void;
   onDelete: (id: string) => void;
 }
 
