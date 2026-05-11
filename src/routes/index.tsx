@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Settings, Zap } from "lucide-react";
-import { applyTheme, getInitialTheme, type Theme } from "@/lib/theme";
+import { applyTheme, getInitialTheme } from "@/lib/theme";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -26,17 +24,9 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  const [theme, setTheme] = useState<Theme>("dark");
   useEffect(() => {
-    const t = getInitialTheme();
-    setTheme(t);
-    applyTheme(t);
+    applyTheme(getInitialTheme());
   }, []);
-  const toggleNight = (on: boolean) => {
-    const next: Theme = on ? "dark" : "light";
-    setTheme(next);
-    applyTheme(next);
-  };
   return (
     <div
       dir="rtl"
@@ -81,16 +71,10 @@ function HomePage() {
           </Link>
         </div>
 
-        <div className="mx-auto mt-10 flex max-w-sm items-center justify-between rounded-lg border border-border bg-card/60 p-4 backdrop-blur">
-          <Label htmlFor="night-mode" className="text-sm">
-            מצב לילה
-          </Label>
-          <Switch
-            id="night-mode"
-            checked={theme === "dark"}
-            onCheckedChange={toggleNight}
-          />
-        </div>
+        <Link to="/settings" className="mx-auto mt-10 flex max-w-sm items-center justify-between rounded-lg border border-border bg-card/60 p-4 backdrop-blur transition hover:border-primary hover:bg-card">
+          <span className="text-sm">הגדרות (מצב לילה / בוקר ועוד)</span>
+          <Settings className="size-5 text-muted-foreground" />
+        </Link>
       </div>
     </div>
   );
