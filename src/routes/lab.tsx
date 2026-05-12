@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { LabCanvas, type Tool } from "@/components/lab/LabCanvas";
 import { LabToolbar } from "@/components/lab/LabToolbar";
@@ -9,29 +9,22 @@ import {
   type PlacedComponent,
   CAPABILITIES,
   GRID,
+  snap,
+  nextComponentName,
 } from "@/lib/lab/types";
 import { solve } from "@/lib/lab/solver";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
+import { useAppSettings } from "@/lib/lab/settingsStore";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/lab")({
   head: () => ({
     meta: [
       { title: "מעבדה — Voltica Laboratories" },
-      {
-        name: "description",
-        content:
-          "מעבדת מעגלים חשמליים אינטראקטיבית: סוללה, נגד, נורה, מפסק, דיודה, ומודדים.",
-      },
+      { name: "description", content: "מעבדת מעגלים חשמליים אינטראקטיבית." },
     ],
   }),
   component: LabPage,
@@ -56,35 +49,59 @@ function LabPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [view, setView] = useState({ x: 200, y: 200, zoom: 1 });
+  const [search, setSearch] = useState("");
+  const [clipboard, setClipboard] = useState<PlacedComponent[]>([]);
+  const [settings] = useAppSettings();
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    applyTheme(getInitialTheme());
-  }, []);
+  useEffect(() => { applyTheme(getInitialTheme()); }, []);
 
   const solved = useMemo(() => solve(components), [components]);
 
-  const handleDrop = (type: ComponentType, world: { x: number; y: number }) => {
-    const id = newId();
-    const c: PlacedComponent = {
-      id,
-      type,
-      x: world.x,
-      y: world.y,
-      rotation: 0,
-      voltage: null,
-      current: null,
-      resistance: null,
-      ...defaultsFor(type),
-    } as PlacedComponent;
-    setComponents((prev) => [...prev, c]);
-    setSelectedIds(new Set([id]));
-  };
+  const searchHits = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return new Set<string>();
+    return new Set(components.filter((c) => c.name.toLowerCase().includes(q)).map((c) => c.id));
+  }, [search, components]);
+
+  const handleDrop = useCallback(
+    (type: ComponentType, rotation: PlacedComponent["rotation"], world: { x: number; y: number }) => {
+      const id = newId();
+      setComponents((prev) => {
+        const c: PlacedComponent = {
+          id,
+          name: nextComponentName(type, prev),
+          type,
+          x: world.x,
+          y: world.y,
+          rotation,
+          voltage: null,
+          current: null,
+          resistance: null,
+          ...defaultsFor(type),
+        } as PlacedComponent;
+        return [...prev, c];
+      });
+      setSelectedIds(new Set([id]));
+    },
+    []
+  );
+
+  // Convert client coords (from palette drop) to world coords using current view+zoom.
+  const onPaletteDrop = useCallback((p: { type: ComponentType; rotation: PlacedComponent["rotation"]; clientX: number; clientY: number }) => {
+    const r = wrapperRef.current?.getBoundingClientRect();
+    const ox = r?.left ?? 0;
+    const oy = r?.top ?? 0;
+    const wx = (p.clientX - ox - view.x) / view.zoom;
+    const wy = (p.clientY - oy - view.y) / view.zoom;
+    handleDrop(p.type, p.rotation, { x: snap(wx), y: snap(wy) });
+  }, [view, handleDrop]);
 
   const handleSave = (next: PlacedComponent) => {
     setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)));
     setEditingId(null);
   };
-
   const handleDelete = (id: string) => {
     setComponents((prev) => prev.filter((c) => c.id !== id));
     setEditingId(null);
@@ -94,15 +111,11 @@ function LabPage() {
     setComponents((prev) => {
       const ids = selectedIds.size > 0
         ? selectedIds
-        : prev.length > 0
-        ? new Set([prev[prev.length - 1].id])
-        : new Set<string>();
+        : prev.length > 0 ? new Set([prev[prev.length - 1].id]) : new Set<string>();
       if (ids.size === 0) return prev;
       const order: PlacedComponent["rotation"][] = [0, 90, 180, 270];
       return prev.map((c) =>
-        ids.has(c.id)
-          ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] }
-          : c
+        ids.has(c.id) ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] } : c
       );
     });
   }, [selectedIds]);
@@ -113,84 +126,150 @@ function LabPage() {
     setSelectedIds(new Set());
   }, [selectedIds]);
 
+  const copyToClipboard = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setClipboard(components.filter((c) => selectedIds.has(c.id)).map((c) => ({ ...c })));
+  }, [selectedIds, components]);
+
+  const cutToClipboard = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setClipboard(components.filter((c) => selectedIds.has(c.id)).map((c) => ({ ...c })));
+    deleteSelected();
+  }, [selectedIds, components, deleteSelected]);
+
+  const pasteFromClipboard = useCallback(() => {
+    if (clipboard.length === 0) return;
+    setComponents((prev) => {
+      const created: PlacedComponent[] = [];
+      const ids: string[] = [];
+      const all = [...prev];
+      for (const c of clipboard) {
+        const id = newId();
+        ids.push(id);
+        const cn = { ...c, id, name: nextComponentName(c.type, all.concat(created)), x: c.x + GRID * 2, y: c.y + GRID * 2 };
+        created.push(cn);
+      }
+      queueMicrotask(() => setSelectedIds(new Set(ids)));
+      return [...prev, ...created];
+    });
+  }, [clipboard]);
+
+  // duplicate-in-place (used by canvas action bar)
   const copySelected = useCallback(() => {
     if (selectedIds.size === 0) return;
     setComponents((prev) => {
-      const newOnes: PlacedComponent[] = [];
-      const newIds: string[] = [];
-      prev.forEach((c) => {
-        if (selectedIds.has(c.id)) {
-          const id = newId();
-          newIds.push(id);
-          newOnes.push({ ...c, id, x: c.x + GRID * 2, y: c.y + GRID * 2 });
-        }
-      });
-      // shift selection to copies after state commit
-      queueMicrotask(() => setSelectedIds(new Set(newIds)));
-      return [...prev, ...newOnes];
+      const created: PlacedComponent[] = [];
+      const ids: string[] = [];
+      const all = [...prev];
+      for (const c of prev.filter((c) => selectedIds.has(c.id))) {
+        const id = newId();
+        ids.push(id);
+        created.push({ ...c, id, name: nextComponentName(c.type, all.concat(created)), x: c.x + GRID * 2, y: c.y + GRID * 2 });
+      }
+      queueMicrotask(() => setSelectedIds(new Set(ids)));
+      return [...prev, ...created];
     });
   }, [selectedIds]);
 
-  // keyboard handling
+  const focusCamera = useCallback(() => {
+    const wrap = wrapperRef.current;
+    if (!wrap) return;
+    const r = wrap.getBoundingClientRect();
+    if (components.length === 0) {
+      setView({ x: r.width / 2, y: r.height / 2, zoom: 1 });
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    components.forEach((c) => {
+      minX = Math.min(minX, c.x - 50); maxX = Math.max(maxX, c.x + 50);
+      minY = Math.min(minY, c.y - 30); maxY = Math.max(maxY, c.y + 30);
+    });
+    const w = maxX - minX, h = maxY - minY;
+    const zoom = Math.min(r.width / w, r.height / h, 1.5) * 0.9;
+    setView({
+      x: r.width / 2 - ((minX + maxX) / 2) * zoom,
+      y: r.height / 2 - ((minY + maxY) / 2) * zoom,
+      zoom,
+    });
+  }, [components]);
+
+  const zoomBy = (factor: number) => {
+    const wrap = wrapperRef.current;
+    if (!wrap) return;
+    const r = wrap.getBoundingClientRect();
+    const cx = r.width / 2, cy = r.height / 2;
+    const wx = (cx - view.x) / view.zoom;
+    const wy = (cy - view.y) / view.zoom;
+    const nz = Math.max(0.2, Math.min(4, view.zoom * factor));
+    setView({ x: cx - wx * nz, y: cy - wy * nz, zoom: nz });
+  };
+
+  // keyboard handling — supports both English and Hebrew layout via e.code
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (e.key === "r" || e.key === "R") {
-        rotateSelected();
-        e.preventDefault();
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedIds.size > 0) {
-          deleteSelected();
-          e.preventDefault();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === "d" || e.key === "D")) {
-        copySelected();
-        e.preventDefault();
-      } else if (e.key === "Escape") {
-        setSelectedIds(new Set());
-      }
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
+      const isR = e.code === "KeyR" || e.key === "r" || e.key === "R" || e.key === "ר";
+      const isC = e.code === "KeyC" || e.key === "c" || e.key === "C" || e.key === "ב";
+      const isV = e.code === "KeyV" || e.key === "v" || e.key === "V" || e.key === "ה";
+      const isX = e.code === "KeyX" || e.key === "x" || e.key === "X" || e.key === "ס";
+      const isD = e.code === "KeyD" || e.key === "d" || e.key === "D" || e.key === "ג";
+      const isF = e.code === "KeyF" || e.key === "f" || e.key === "F" || e.key === "כ";
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (isR && !ctrl) { rotateSelected(); e.preventDefault(); return; }
+      if (e.key === "Delete" || e.key === "Backspace") { if (selectedIds.size > 0) { deleteSelected(); e.preventDefault(); } return; }
+      if (ctrl && isC) { copyToClipboard(); e.preventDefault(); return; }
+      if (ctrl && isV) { pasteFromClipboard(); e.preventDefault(); return; }
+      if (ctrl && isX) { cutToClipboard(); e.preventDefault(); return; }
+      if (ctrl && isD) { copySelected(); e.preventDefault(); return; }
+      if (isF && !ctrl) { focusCamera(); e.preventDefault(); return; }
+      if (e.key === "Escape") { setSelectedIds(new Set()); setSearch(""); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rotateSelected, deleteSelected, copySelected, selectedIds]);
+  }, [rotateSelected, deleteSelected, copyToClipboard, pasteFromClipboard, cutToClipboard, copySelected, focusCamera, selectedIds]);
 
   const editing = components.find((c) => c.id === editingId) ?? null;
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div ref={wrapperRef} className="relative h-screen w-screen overflow-hidden bg-background text-foreground">
       <LabCanvas
         components={components}
         setComponents={setComponents}
         tool={tool}
         solve={solved}
         onQuickClick={(id) => setEditingId(id)}
-        onDropComponent={handleDrop}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCopySelected={copySelected}
         onDeleteSelected={deleteSelected}
+        view={view}
+        setView={setView}
+        searchHits={searchHits}
+        settings={settings}
       />
       <LabToolbar
         tool={tool}
         setTool={setTool}
         onClear={() => setConfirmClear(true)}
         onRotateSelected={rotateSelected}
+        onZoomIn={() => zoomBy(1.25)}
+        onZoomOut={() => zoomBy(1 / 1.25)}
+        onFocus={focusCamera}
+        search={search}
+        setSearch={setSearch}
+        searchCount={searchHits.size}
       />
 
       {solved.unknowns.length > 0 && (
-        <div
-          dir="rtl"
-          className="pointer-events-auto fixed end-4 top-4 z-30 max-w-xs rounded-lg border border-border bg-card/90 p-3 shadow-lg backdrop-blur"
-        >
+        <div dir="rtl" className="pointer-events-auto fixed end-2 top-2 z-30 max-w-xs rounded-lg border border-border bg-card/90 p-3 shadow-lg backdrop-blur">
           <div className="mb-2 text-sm font-semibold">פתרון נעלמים</div>
           <ul className="space-y-1 text-sm">
             {solved.unknowns.map((u) => (
               <li key={u.name} className="flex justify-between gap-2">
                 <span className="font-mono">{u.name}</span>
                 <span className="text-muted-foreground">
-                  = {Number.isInteger(u.value) ? u.value : u.value.toFixed(3)}{" "}
-                  {u.unit}
+                  = {Number.isInteger(u.value) ? u.value : u.value.toFixed(3)} {u.unit}
                 </span>
               </li>
             ))}
@@ -198,10 +277,11 @@ function LabPage() {
         </div>
       )}
 
-      <Palette />
+      <Palette onDrop={onPaletteDrop} />
 
       <EditDialog
         component={editing}
+        solve={solved}
         onClose={() => setEditingId(null)}
         onSave={handleSave}
         onUpdate={(next) =>
@@ -214,19 +294,11 @@ function LabPage() {
         <AlertDialogContent dir="rtl">
           <AlertDialogHeader>
             <AlertDialogTitle>לנקות את הלוח?</AlertDialogTitle>
-            <AlertDialogDescription>
-              כל הרכיבים יוסרו. הפעולה אינה הפיכה.
-            </AlertDialogDescription>
+            <AlertDialogDescription>כל הרכיבים יוסרו. הפעולה אינה הפיכה.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>ביטול</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setComponents([]);
-                setSelectedIds(new Set());
-                setConfirmClear(false);
-              }}
-            >
+            <AlertDialogAction onClick={() => { setComponents([]); setSelectedIds(new Set()); setConfirmClear(false); }}>
               נקה
             </AlertDialogAction>
           </AlertDialogFooter>
