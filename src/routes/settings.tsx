@@ -4,34 +4,34 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ArrowRight } from "lucide-react";
-import { applyTheme, getInitialTheme, type Theme } from "@/lib/theme";
+import { applyTheme, getInitialTheme, setTheme as persistTheme, type Theme } from "@/lib/theme";
+import { useAppSettings } from "@/lib/lab/settingsStore";
+import { prefixedUnits, type Quantity, QUANTITY_LABEL_HE } from "@/lib/lab/units";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
       { title: "הגדרות — Voltica Laboratories" },
-      { name: "description", content: "הגדרות מצב לילה ותצוגה." },
+      { name: "description", content: "הגדרות תצוגה ויחידות מידה." },
     ],
   }),
   component: SettingsPage,
 });
 
 function SettingsPage() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTh] = useState<Theme>("dark");
+  const [settings, updateSettings] = useAppSettings();
+
   useEffect(() => {
     const t = getInitialTheme();
-    setTheme(t);
+    setTh(t);
     applyTheme(t);
   }, []);
-  const set = (t: Theme) => {
-    setTheme(t);
-    applyTheme(t);
-  };
+
+  const set = (t: Theme) => { setTh(t); persistTheme(t); };
+
   return (
-    <div
-      dir="rtl"
-      className="min-h-screen bg-background px-6 py-10 text-foreground"
-    >
+    <div dir="rtl" className="min-h-screen bg-background px-6 py-10 text-foreground">
       <div className="mx-auto max-w-xl">
         <Link to="/">
           <Button variant="ghost" size="sm" className="mb-6">
@@ -41,33 +41,48 @@ function SettingsPage() {
         <h1 className="mb-6 text-3xl font-bold">הגדרות</h1>
 
         <section className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <Label className="text-base">מצב לילה</Label>
-              <p className="text-xs text-muted-foreground">
-                החלף בין מצב בוקר (בהיר) למצב לילה (כהה).
-              </p>
-            </div>
+          <div className="flex flex-row-reverse items-center justify-between gap-4">
             <Switch
               checked={theme === "dark"}
               onCheckedChange={(v) => set(v ? "dark" : "light")}
             />
+            <Label className="text-base">מצב לילה</Label>
           </div>
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant={theme === "light" ? "default" : "outline"}
-              size="sm"
-              onClick={() => set("light")}
-            >
-              מצב בוקר
-            </Button>
-            <Button
-              variant={theme === "dark" ? "default" : "outline"}
-              size="sm"
-              onClick={() => set("dark")}
-            >
-              מצב לילה
-            </Button>
+        </section>
+
+        <section className="mt-4 rounded-lg border border-border bg-card p-5">
+          <h2 className="mb-3 text-lg font-semibold">יחידות מידה ברירת מחדל</h2>
+          <div className="space-y-3">
+            {(["voltage", "current", "resistance"] as Quantity[]).map((q) => (
+              <div key={q} className="flex flex-row-reverse items-center justify-between gap-4">
+                <select
+                  value={settings.defaultUnit[q]}
+                  onChange={(e) => updateSettings({ defaultUnit: { ...settings.defaultUnit, [q]: e.target.value } })}
+                  className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                >
+                  {prefixedUnits(q).map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <Label>{QUANTITY_LABEL_HE[q]}</Label>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-lg border border-border bg-card p-5">
+          <h2 className="mb-3 text-lg font-semibold">תצוגה במעבדה</h2>
+          <div className="flex flex-row-reverse items-center justify-between">
+            <Switch
+              checked={settings.showNames}
+              onCheckedChange={(v) => updateSettings({ showNames: v })}
+            />
+            <Label>הצג שמות רכיבים על הלוח</Label>
+          </div>
+          <div className="mt-3 flex flex-row-reverse items-center justify-between">
+            <Switch
+              checked={settings.showElectronFlow}
+              onCheckedChange={(v) => updateSettings({ showElectronFlow: v })}
+            />
+            <Label>הצג זרימת אלקטרונים על תילים</Label>
           </div>
         </section>
       </div>
