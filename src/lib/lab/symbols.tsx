@@ -1,17 +1,19 @@
 // SVG renderings for each component type.
-// Each symbol is drawn inside an 80x40 box centered at (0,0) with terminals
-// at (-40, 0) and (+40, 0) so rotation works uniformly.
+// Each symbol is drawn inside a 80x40 box centered at (0,0) with terminals
+// at (-40, 0) and (+40, 0). Rotation is applied at the group level by
+// PlacedSymbol so that the entire shape rotates as a rigid body.
 import type { ComponentType, PlacedComponent } from "./types";
 
 interface Props {
   type: ComponentType;
-  active?: boolean; // currently in a closed circuit
-  closed?: boolean; // for switch
+  active?: boolean;
+  closed?: boolean;
   bulbLit?: boolean;
   color?: string;
+  rotation?: number; // for symbols that need internal counter-rotation (none currently)
 }
 
-export function ComponentSymbol({ type, active, closed, bulbLit, color }: Props) {
+export function ComponentSymbol({ type, closed, bulbLit, color }: Props) {
   const stroke = color ?? "currentColor";
   switch (type) {
     case "wire":
@@ -30,17 +32,16 @@ export function ComponentSymbol({ type, active, closed, bulbLit, color }: Props)
         </g>
       );
     case "resistor":
+      // IEC zigzag (קווקוו) symbol.
       return (
         <g>
           <line x1={-40} y1={0} x2={-22} y2={0} stroke={stroke} strokeWidth={3} />
-          <rect
-            x={-22}
-            y={-9}
-            width={44}
-            height={18}
-            fill="transparent"
+          <polyline
+            points="-22,0 -18,-9 -12,9 -6,-9 0,9 6,-9 12,9 18,-9 22,0"
+            fill="none"
             stroke={stroke}
             strokeWidth={3}
+            strokeLinejoin="round"
           />
           <line x1={22} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
         </g>
@@ -81,7 +82,7 @@ export function ComponentSymbol({ type, active, closed, bulbLit, color }: Props)
         <g>
           <line x1={-40} y1={0} x2={-10} y2={0} stroke={stroke} strokeWidth={3} />
           <polygon
-            points={`-10,-10 -10,10 10,0`}
+            points="-10,-10 -10,10 10,0"
             fill={stroke}
             stroke={stroke}
             strokeWidth={2}
@@ -103,25 +104,15 @@ export function ComponentSymbol({ type, active, closed, bulbLit, color }: Props)
 }
 
 function meterSymbol(letter: string, stroke: string) {
+  // The "display bar" (needle/face line) sits along the wire axis so when
+  // the meter rotates the bar rotates with it.
   return (
     <g>
       <line x1={-40} y1={0} x2={-16} y2={0} stroke={stroke} strokeWidth={3} />
-      <circle
-        cx={0}
-        cy={0}
-        r={16}
-        fill="transparent"
-        stroke={stroke}
-        strokeWidth={3}
-      />
-      <text
-        x={0}
-        y={5}
-        textAnchor="middle"
-        fontSize={16}
-        fontWeight={700}
-        fill={stroke}
-      >
+      <circle cx={0} cy={0} r={16} fill="transparent" stroke={stroke} strokeWidth={3} />
+      {/* Internal display bar — rotates together with the body */}
+      <line x1={-10} y1={-7} x2={10} y2={-7} stroke={stroke} strokeWidth={1.5} opacity={0.6} />
+      <text x={0} y={6} textAnchor="middle" fontSize={14} fontWeight={700} fill={stroke}>
         {letter}
       </text>
       <line x1={16} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
@@ -138,7 +129,7 @@ export function PaletteSymbol({ type }: { type: ComponentType }) {
   );
 }
 
-// Wrap a placed component in a translated/rotated <g>.
+// Place a component at its world position and rotate the entire shape.
 export function PlacedSymbol({
   c,
   color,

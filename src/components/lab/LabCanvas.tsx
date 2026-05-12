@@ -1,16 +1,22 @@
+// Voltica Laboratories — infinite canvas with pan, pinch/wheel zoom,
+// component placement, marquee selection, search highlighting, electron
+// flow animation on wires, and "open circuit" warnings.
+//
+// Mobile-first: every gesture goes through pointer events with passive
+// touch support; pinch zoom is implemented manually (two-finger gesture).
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   COMPONENT_LENGTH,
   GRID,
   snap,
-  type ComponentType,
   type PlacedComponent,
 } from "@/lib/lab/types";
 import { PlacedSymbol } from "@/lib/lab/symbols";
 import type { SolveResult } from "@/lib/lab/solver";
-import { PALETTE_DND_TYPE } from "./Palette";
 import { Button } from "@/components/ui/button";
 import { Copy, Trash2 } from "lucide-react";
+import type { AppSettings } from "@/lib/lab/settingsStore";
 
 export type Tool = "select" | "pan";
 
@@ -22,33 +28,30 @@ interface Props {
   tool: Tool;
   solve: SolveResult;
   onQuickClick: (id: string) => void;
-  onDropComponent: (type: ComponentType, world: { x: number; y: number }) => void;
   selectedIds: Set<string>;
   setSelectedIds: (ids: Set<string>) => void;
   onCopySelected: () => void;
   onDeleteSelected: () => void;
-}
-
-interface View {
-  x: number;
-  y: number;
+  view: { x: number; y: number; zoom: number };
+  setView: (v: { x: number; y: number; zoom: number }) => void;
+  // ids that match the current search query (highlighted in a special color)
+  searchHits: Set<string>;
+  settings: AppSettings;
 }
 
 interface DragState {
   kind: "pan" | "comp" | "marquee";
   compId?: string;
   startClient: { x: number; y: number };
-  startView: View;
+  startView: { x: number; y: number };
   startCompPos?: { x: number; y: number };
   startWorld?: { x: number; y: number };
   curWorld?: { x: number; y: number };
   startTime: number;
   moved: boolean;
-  // for moving multiple selected
   groupStart?: Record<string, { x: number; y: number }>;
 }
 
-// Returns the topmost component whose body overlaps the world point.
 function pickComponent(
   components: PlacedComponent[],
   wx: number,
@@ -61,9 +64,7 @@ function pickComponent(
     const rad = (-c.rotation * Math.PI) / 180;
     const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
     const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-    if (Math.abs(lx) <= COMPONENT_LENGTH / 2 && Math.abs(ly) <= 22) {
-      return c;
-    }
+    if (Math.abs(lx) <= COMPONENT_LENGTH / 2 && Math.abs(ly) <= 22) return c;
   }
   return null;
 }
@@ -74,21 +75,22 @@ export function LabCanvas({
   tool,
   solve,
   onQuickClick,
-  onDropComponent,
   selectedIds,
   setSelectedIds,
   onCopySelected,
   onDeleteSelected,
+  view,
+  setView,
+  searchHits,
+  settings,
 }: Props) {
-  const [view, setView] = useState<View>({ x: 0, y: 0 });
   const [size, setSize] = useState({ w: 800, h: 600 });
-  const dragRef = useRef<DragState | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const pinchRef = useRef<{ d: number; cx: number; cy: number; zoom: number } | null>(null);
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const [marquee, setMarquee] = useState<{
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
+    x1: number; y1: number; x2: number; y2: number;
   } | null>(null);
 
   useEffect(() => {
@@ -107,26 +109,42 @@ export function LabCanvas({
       const r = wrapperRef.current?.getBoundingClientRect();
       const ox = r?.left ?? 0;
       const oy = r?.top ?? 0;
-      return { x: clientX - ox - view.x, y: clientY - oy - view.y };
+      return {
+        x: (clientX - ox - view.x) / view.zoom,
+        y: (clientY - oy - view.y) / view.zoom,
+      };
     },
     [view]
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const pts = Array.from(pointers.current.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      pinchRef.current = {
+        d: Math.hypot(dx, dy),
+        cx: (pts[0].x + pts[1].x) / 2,
+        cy: (pts[0].y + pts[1].y) / 2,
+        zoom: view.zoom,
+      };
+      dragRef.current = null;
+      return;
+    }
     const { x: wx, y: wy } = toWorld(e.clientX, e.clientY);
     if (tool === "pan") {
       dragRef.current = {
         kind: "pan",
         startClient: { x: e.clientX, y: e.clientY },
-        startView: view,
+        startView: { x: view.x, y: view.y },
         startTime: performance.now(),
         moved: false,
       };
     } else {
       const target = pickComponent(components, wx, wy);
       if (target) {
-        // if not in selection, replace selection with this component
         let nextSel = selectedIds;
         if (!selectedIds.has(target.id)) {
           nextSel = new Set([target.id]);
@@ -140,20 +158,19 @@ export function LabCanvas({
           kind: "comp",
           compId: target.id,
           startClient: { x: e.clientX, y: e.clientY },
-          startView: view,
+          startView: { x: view.x, y: view.y },
           startCompPos: { x: target.x, y: target.y },
           startTime: performance.now(),
           moved: false,
           groupStart,
         };
       } else {
-        // start marquee
         setSelectedIds(new Set());
         setMarquee({ x1: wx, y1: wy, x2: wx, y2: wy });
         dragRef.current = {
           kind: "marquee",
           startClient: { x: e.clientX, y: e.clientY },
-          startView: view,
+          startView: { x: view.x, y: view.y },
           startWorld: { x: wx, y: wy },
           curWorld: { x: wx, y: wy },
           startTime: performance.now(),
@@ -161,44 +178,62 @@ export function LabCanvas({
         };
       }
     }
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    // Pinch zoom
+    if (pinchRef.current && pointers.current.size === 2) {
+      const pts = Array.from(pointers.current.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      const d = Math.hypot(dx, dy);
+      const ratio = d / pinchRef.current.d;
+      const newZoom = Math.max(0.2, Math.min(4, pinchRef.current.zoom * ratio));
+      // zoom around pinch center
+      const r = wrapperRef.current?.getBoundingClientRect();
+      const ox = r?.left ?? 0;
+      const oy = r?.top ?? 0;
+      const cx = pinchRef.current.cx - ox;
+      const cy = pinchRef.current.cy - oy;
+      const wx = (cx - view.x) / view.zoom;
+      const wy = (cy - view.y) / view.zoom;
+      const nx = cx - wx * newZoom;
+      const ny = cy - wy * newZoom;
+      setView({ x: nx, y: ny, zoom: newZoom });
+      return;
+    }
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.startClient.x;
     const dy = e.clientY - d.startClient.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (d.kind === "pan") {
-      setView({ x: d.startView.x + dx, y: d.startView.y + dy });
+      setView({ x: d.startView.x + dx, y: d.startView.y + dy, zoom: view.zoom });
     } else if (d.kind === "comp" && d.startCompPos && d.compId) {
-      const targetNx = snap(d.startCompPos.x + dx);
-      const targetNy = snap(d.startCompPos.y + dy);
+      const wdx = dx / view.zoom;
+      const wdy = dy / view.zoom;
+      const targetNx = snap(d.startCompPos.x + wdx);
+      const targetNy = snap(d.startCompPos.y + wdy);
       const ddx = targetNx - d.startCompPos.x;
       const ddy = targetNy - d.startCompPos.y;
       const gs = d.groupStart;
       setComponents((prev) =>
-        prev.map((c) => {
-          if (gs && gs[c.id]) {
-            return { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy };
-          }
-          return c;
-        })
+        prev.map((c) => (gs && gs[c.id] ? { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy } : c))
       );
     } else if (d.kind === "marquee" && d.startWorld) {
       const w = toWorld(e.clientX, e.clientY);
       d.curWorld = w;
-      setMarquee({
-        x1: d.startWorld.x,
-        y1: d.startWorld.y,
-        x2: w.x,
-        y2: w.y,
-      });
+      setMarquee({ x1: d.startWorld.x, y1: d.startWorld.y, x2: w.x, y2: w.y });
     }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinchRef.current = null;
     const d = dragRef.current;
     dragRef.current = null;
     if (!d) return;
@@ -216,105 +251,88 @@ export function LabCanvas({
       } else {
         const ids = new Set<string>();
         components.forEach((c) => {
-          if (c.x >= minX && c.x <= maxX && c.y >= minY && c.y <= maxY) {
-            ids.add(c.id);
-          }
+          if (c.x >= minX && c.x <= maxX && c.y >= minY && c.y <= maxY) ids.add(c.id);
         });
         setSelectedIds(ids);
-        // keep marquee rect visible until next action? clear it; selection rectangle will be drawn around items.
         setMarquee(null);
       }
     }
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  // Wheel zoom
+  const onWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 0) {
+      const r = wrapperRef.current?.getBoundingClientRect();
+      const ox = r?.left ?? 0;
+      const oy = r?.top ?? 0;
+      const cx = e.clientX - ox;
+      const cy = e.clientY - oy;
+      const wx = (cx - view.x) / view.zoom;
+      const wy = (cy - view.y) / view.zoom;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      const newZoom = Math.max(0.2, Math.min(4, view.zoom * factor));
+      setView({ x: cx - wx * newZoom, y: cy - wy * newZoom, zoom: newZoom });
     }
   };
 
-  // Drop handling for palette drag
-  const onDragOver = (e: React.DragEvent) => {
-    if (Array.from(e.dataTransfer.types).includes(PALETTE_DND_TYPE)) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    }
-  };
-  const onDrop = (e: React.DragEvent) => {
-    const t = e.dataTransfer.getData(PALETTE_DND_TYPE);
-    if (!t) return;
-    e.preventDefault();
-    const w = toWorld(e.clientX, e.clientY);
-    onDropComponent(t as ComponentType, { x: snap(w.x), y: snap(w.y) });
-  };
-
-  // grid
+  // Build grid lines for visible area.
   const gridLines: React.ReactNode[] = [];
-  const startX = -view.x - GRID * 20;
-  const startY = -view.y - GRID * 20;
-  const endX = -view.x + size.w + GRID * 20;
-  const endY = -view.y + size.h + GRID * 20;
+  const startX = -view.x / view.zoom - GRID * 20;
+  const startY = -view.y / view.zoom - GRID * 20;
+  const endX = startX + size.w / view.zoom + GRID * 40;
+  const endY = startY + size.h / view.zoom + GRID * 40;
   for (let x = Math.floor(startX / GRID) * GRID; x < endX; x += GRID) {
     gridLines.push(
-      <line
-        key={`vx${x}`}
-        x1={x}
-        y1={startY}
-        x2={x}
-        y2={endY}
+      <line key={`vx${x}`} x1={x} y1={startY} x2={x} y2={endY}
         stroke="var(--grid)"
-        strokeWidth={x % (GRID * 5) === 0 ? 0.6 : 0.3}
-      />
+        strokeWidth={(x % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom} />
     );
   }
   for (let y = Math.floor(startY / GRID) * GRID; y < endY; y += GRID) {
     gridLines.push(
-      <line
-        key={`hy${y}`}
-        x1={startX}
-        y1={y}
-        x2={endX}
-        y2={y}
+      <line key={`hy${y}`} x1={startX} y1={y} x2={endX} y2={y}
         stroke="var(--grid)"
-        strokeWidth={y % (GRID * 5) === 0 ? 0.6 : 0.3}
-      />
+        strokeWidth={(y % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom} />
     );
   }
 
   const cursor = tool === "pan" ? "grab" : "default";
 
   const isMeter = (t: PlacedComponent["type"]) =>
-    t === "ammeter" ||
-    t === "voltmeter" ||
-    t === "ohmmeter" ||
-    t === "multimeter";
+    t === "ammeter" || t === "voltmeter" || t === "ohmmeter" || t === "multimeter";
 
+  // Format a meter reading using settings/per-component unit overrides.
   const meterReading = (c: PlacedComponent): string => {
     const sc = solve.components[c.id];
     if (!sc || !sc.inActiveLoop) return "—";
-    const fmt = (n: number, u: string) =>
-      `${Number.isInteger(n) ? n : n.toFixed(2)} ${u}`;
-    if (c.type === "ammeter")
-      return sc.current != null ? fmt(sc.current, "A") : "—";
-    if (c.type === "voltmeter")
-      return sc.voltage != null ? fmt(sc.voltage, "V") : "—";
-    if (c.type === "ohmmeter")
-      return sc.resistance != null ? fmt(sc.resistance, "Ω") : "—";
+    const pickUnit = (q: "voltage" | "current" | "resistance") =>
+      c.unitOverrides?.[q] ?? settings.defaultUnit[q];
+    const fmt = (v: number | null, q: "voltage" | "current" | "resistance"): string => {
+      if (v == null) return "—";
+      const u = pickUnit(q);
+      const factor = unitFactor(u, q);
+      const display = v / factor;
+      const abs = Math.abs(display);
+      const str = abs >= 100 ? display.toFixed(0)
+        : abs >= 10 ? display.toFixed(1)
+        : abs >= 1 ? display.toFixed(2)
+        : display.toFixed(3);
+      return `${str} ${u}`;
+    };
+    if (c.type === "ammeter") return fmt(sc.current, "current");
+    if (c.type === "voltmeter") return fmt(sc.voltage, "voltage");
+    if (c.type === "ohmmeter") return fmt(sc.resistance, "resistance");
     if (c.type === "multimeter") {
-      const parts: string[] = [];
-      if (sc.voltage != null) parts.push(fmt(sc.voltage, "V"));
-      if (sc.current != null) parts.push(fmt(sc.current, "A"));
-      if (sc.resistance != null) parts.push(fmt(sc.resistance, "Ω"));
-      return parts.length ? parts.join(" / ") : "—";
+      return [fmt(sc.voltage, "voltage"), fmt(sc.current, "current"), fmt(sc.resistance, "resistance")].join(" / ");
     }
     return "—";
   };
 
-  // selection bbox for floating action bar
+  // floating action bar position (in screen coords)
   let actionBar: { left: number; top: number } | null = null;
   if (selectedIds.size > 0) {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity;
     components.forEach((c) => {
       if (!selectedIds.has(c.id)) return;
       minX = Math.min(minX, c.x - COMPONENT_LENGTH / 2);
@@ -323,19 +341,22 @@ export function LabCanvas({
     });
     if (Number.isFinite(minX)) {
       actionBar = {
-        left: view.x + (minX + maxX) / 2,
-        top: view.y + minY - 44,
+        left: view.x + ((minX + maxX) / 2) * view.zoom,
+        top: view.y + minY * view.zoom - 44,
       };
     }
   }
+
+  // Determine if any diode is in the same loop as a wire — used to force
+  // electron-flow direction on wires according to diode orientation.
+  // (Simplified: solver already returns flowDirection per wire from the loop solution.)
 
   return (
     <div
       ref={wrapperRef}
       className="absolute inset-0 select-none overflow-hidden bg-background"
-      style={{ cursor }}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      style={{ cursor, touchAction: "none" }}
+      onWheel={onWheel}
     >
       <svg
         width={size.w}
@@ -346,16 +367,14 @@ export function LabCanvas({
         onPointerCancel={onPointerUp}
         style={{ touchAction: "none" }}
       >
-        <g transform={`translate(${view.x}, ${view.y})`}>
+        <g transform={`translate(${view.x}, ${view.y}) scale(${view.zoom})`}>
           {gridLines}
           {components.map((c) => {
             const sc = solve.components[c.id];
-            const color =
-              sc?.inActiveLoop && sc.loopId != null
-                ? solve.loopColors[sc.loopId]
-                : undefined;
-            const lit =
-              c.type === "bulb" && sc?.inActiveLoop && (sc.current ?? 0) !== 0;
+            const baseColor = sc?.inActiveLoop && sc.loopId != null ? solve.loopColors[sc.loopId] : undefined;
+            const isHit = searchHits.has(c.id);
+            const color = isHit ? "oklch(0.85 0.22 60)" : baseColor;
+            const lit = c.type === "bulb" && sc?.inActiveLoop && (sc.current ?? 0) !== 0;
             const selected = selectedIds.has(c.id);
             return (
               <g key={c.id}>
@@ -374,7 +393,52 @@ export function LabCanvas({
                     transform={`rotate(${c.rotation} ${c.x} ${c.y})`}
                   />
                 )}
+                {isHit && !selected && (
+                  <rect
+                    x={c.x - COMPONENT_LENGTH / 2 - 6}
+                    y={c.y - 26}
+                    width={COMPONENT_LENGTH + 12}
+                    height={52}
+                    fill="oklch(0.85 0.22 60)"
+                    fillOpacity={0.12}
+                    stroke="oklch(0.85 0.22 60)"
+                    strokeWidth={1.5}
+                    rx={6}
+                    transform={`rotate(${c.rotation} ${c.x} ${c.y})`}
+                  />
+                )}
                 <PlacedSymbol c={c} color={color} bulbLit={lit} />
+                {/* Electron flow animation — only on wires, only when current flows */}
+                {c.type === "wire" && sc?.inActiveLoop && (sc.current ?? 0) !== 0 && settings.showElectronFlow && (
+                  <g transform={`translate(${c.x}, ${c.y}) rotate(${c.rotation})`}>
+                    <line
+                      x1={-38} y1={0} x2={38} y2={0}
+                      stroke="oklch(0.85 0.22 60)"
+                      strokeWidth={2}
+                      strokeDasharray="4 6"
+                      opacity={0.85}
+                    >
+                      <animate
+                        attributeName="stroke-dashoffset"
+                        from={sc.flowDirection >= 0 ? 0 : 0}
+                        to={sc.flowDirection >= 0 ? -20 : 20}
+                        dur="0.7s"
+                        repeatCount="indefinite"
+                      />
+                    </line>
+                  </g>
+                )}
+                {settings.showNames && (
+                  <text
+                    x={c.x}
+                    y={c.y + 30}
+                    textAnchor="middle"
+                    fontSize={10}
+                    fill="var(--muted-foreground)"
+                  >
+                    {c.name}
+                  </text>
+                )}
                 {isMeter(c.type) && (
                   <text
                     x={c.x}
@@ -390,6 +454,32 @@ export function LabCanvas({
               </g>
             );
           })}
+
+          {/* Open circuit warnings */}
+          {solve.openWarnings.map((w, i) => (
+            <g key={`ow${i}`}>
+              <rect
+                x={w.centerX - 50}
+                y={w.centerY - 12}
+                width={100}
+                height={20}
+                rx={4}
+                fill="var(--destructive)"
+                opacity={0.92}
+              />
+              <text
+                x={w.centerX}
+                y={w.centerY + 3}
+                textAnchor="middle"
+                fontSize={11}
+                fontWeight={700}
+                fill="var(--destructive-foreground)"
+              >
+                מעגל פתוח
+              </text>
+            </g>
+          ))}
+
           {marquee && (
             <rect
               x={Math.min(marquee.x1, marquee.x2)}
@@ -399,7 +489,7 @@ export function LabCanvas({
               fill="var(--primary)"
               fillOpacity={0.1}
               stroke="var(--primary)"
-              strokeWidth={1}
+              strokeWidth={1 / view.zoom}
               strokeDasharray="5 4"
             />
           )}
@@ -412,15 +502,10 @@ export function LabCanvas({
           className="pointer-events-auto absolute z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/95 p-1 shadow-lg backdrop-blur"
           style={{ left: actionBar.left, top: Math.max(8, actionBar.top) }}
         >
-          <Button size="sm" variant="ghost" onClick={onCopySelected} title="העתק (Ctrl+D)">
+          <Button size="sm" variant="ghost" onClick={onCopySelected} title="העתק (Ctrl+C/D)">
             <Copy className="size-4" /> העתק
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onDeleteSelected}
-            title="מחק (Delete)"
-          >
+          <Button size="sm" variant="ghost" onClick={onDeleteSelected} title="מחק (Delete)">
             <Trash2 className="size-4" /> מחק
           </Button>
           <span className="px-2 text-xs text-muted-foreground">
@@ -431,3 +516,6 @@ export function LabCanvas({
     </div>
   );
 }
+
+// (re-imported here to avoid a separate file just for unit factor used in formatting)
+import { unitFactor } from "@/lib/lab/units";
