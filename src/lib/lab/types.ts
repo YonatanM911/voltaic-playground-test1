@@ -1,5 +1,6 @@
-// Voltica Laboratories - core types for the circuit lab
-// All physical components placed on the infinite canvas implement this shape.
+// Voltica Laboratories — core types for the circuit lab.
+// Numeric values are stored in SI base units (V, A, Ω); per-component
+// `unitOverrides` selects how a quantity is displayed/edited.
 
 export type ComponentType =
   | "wire"
@@ -13,14 +14,14 @@ export type ComponentType =
   | "ohmmeter"
   | "multimeter";
 
-// Which physical quantities can be edited per component type.
-// A "true" means the user can supply a value or declare an unknown for it.
 export interface CapabilityFlags {
   voltage: boolean;
   current: boolean;
   resistance: boolean;
 }
 
+// Which quantities the user is allowed to *edit* on each type.
+// All other quantities still get *displayed* (read-only) in the edit dialog.
 export const CAPABILITIES: Record<ComponentType, CapabilityFlags> = {
   wire: { voltage: false, current: false, resistance: false },
   battery: { voltage: true, current: false, resistance: false },
@@ -47,22 +48,34 @@ export const COMPONENT_LABEL_HE: Record<ComponentType, string> = {
   multimeter: "מולטימטר",
 };
 
-// One component lives at (x,y), rotated by `rotation` degrees, with two
-// terminals offset symmetrically on either side. The visible shape is drawn
-// inside a 80x40 box around (x,y).
+// Creative default name prefixes (auto-incremented).
+export const NAME_PREFIX: Record<ComponentType, string> = {
+  wire: "wire",
+  battery: "battery",
+  resistor: "resistor",
+  bulb: "bulb",
+  switch: "switch",
+  diode: "diode",
+  ammeter: "amp",
+  voltmeter: "volt",
+  ohmmeter: "ohm",
+  multimeter: "multi",
+};
+
+import type { Quantity } from "./units";
+
 export interface PlacedComponent {
   id: string;
+  name: string;
   type: ComponentType;
   x: number;
   y: number;
   rotation: 0 | 90 | 180 | 270;
-  // user-supplied values; null means "no value", a string starting with a
-  // letter means an unknown name (e.g. "t1").
-  voltage: number | string | null;
+  voltage: number | string | null;   // SI value, or unknown name, or null
   current: number | string | null;
   resistance: number | string | null;
-  // for switches: open / closed
-  closed?: boolean;
+  closed?: boolean;                  // for switch
+  unitOverrides?: Partial<Record<Quantity, string>>;
 }
 
 export interface Terminal {
@@ -72,14 +85,14 @@ export interface Terminal {
   y: number;
 }
 
-export const COMPONENT_LENGTH = 80; // distance between the two terminals
+export const COMPONENT_LENGTH = 80; // distance between two terminals
 export const GRID = 20;
 
 export function snap(v: number): number {
   return Math.round(v / GRID) * GRID;
 }
 
-// Returns the world-space positions of the two terminals of a component.
+// World-space terminal positions of a placed component.
 export function terminalPositions(c: PlacedComponent): [Terminal, Terminal] {
   const half = COMPONENT_LENGTH / 2;
   const rad = (c.rotation * Math.PI) / 180;
@@ -92,15 +105,9 @@ export function terminalPositions(c: PlacedComponent): [Terminal, Terminal] {
 }
 
 export function isValidUnknownName(name: string): boolean {
-  // must start with English letter, then any english letters or digits
   return /^[A-Za-z][A-Za-z0-9_]*$/.test(name);
 }
 
-// Parse user input for a quantity field. Returns:
-//  - number if numeric
-//  - string if it's a valid unknown name
-//  - null if empty
-//  - { error } if invalid
 export type FieldParse =
   | { kind: "number"; value: number }
   | { kind: "unknown"; name: string }
@@ -110,8 +117,10 @@ export type FieldParse =
 export function parseField(raw: string): FieldParse {
   const v = raw.trim();
   if (v === "") return { kind: "empty" };
-  if (!Number.isNaN(Number(v))) {
-    const n = Number(v);
+  // allow unicode minus and decimal comma
+  const norm = v.replace(",", ".");
+  if (!Number.isNaN(Number(norm))) {
+    const n = Number(norm);
     if (!Number.isFinite(n)) return { kind: "error", message: "ערך לא חוקי" };
     return { kind: "number", value: n };
   }
@@ -120,4 +129,16 @@ export function parseField(raw: string): FieldParse {
     kind: "error",
     message: "נעלם חייב להתחיל באות באנגלית, ואז אותיות/ספרות בלבד",
   };
+}
+
+// pick a unique creative name for a new component
+export function nextComponentName(
+  type: ComponentType,
+  existing: PlacedComponent[]
+): string {
+  const prefix = NAME_PREFIX[type];
+  let i = 1;
+  const used = new Set(existing.map((c) => c.name));
+  while (used.has(`${prefix}${i}`)) i++;
+  return `${prefix}${i}`;
 }
