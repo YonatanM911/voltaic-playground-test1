@@ -4,6 +4,9 @@
 
 export type ComponentType =
   | "wire"
+  | "wire_corner"
+  | "wire_t"
+  | "wire_plus"
   | "battery"
   | "resistor"
   | "bulb"
@@ -12,7 +15,15 @@ export type ComponentType =
   | "ammeter"
   | "voltmeter"
   | "ohmmeter"
-  | "multimeter";
+  | "multimeter"
+  | "gate_and"
+  | "gate_or"
+  | "gate_not"
+  | "gate_xor"
+  | "gate_nand"
+  | "gate_nor"
+  | "gate_buffer"
+  | "gate_xnor";
 
 export interface CapabilityFlags {
   voltage: boolean;
@@ -24,6 +35,9 @@ export interface CapabilityFlags {
 // All other quantities still get *displayed* (read-only) in the edit dialog.
 export const CAPABILITIES: Record<ComponentType, CapabilityFlags> = {
   wire: { voltage: false, current: false, resistance: false },
+  wire_corner: { voltage: false, current: false, resistance: false },
+  wire_t: { voltage: false, current: false, resistance: false },
+  wire_plus: { voltage: false, current: false, resistance: false },
   battery: { voltage: true, current: false, resistance: false },
   resistor: { voltage: false, current: false, resistance: true },
   bulb: { voltage: false, current: false, resistance: true },
@@ -33,10 +47,21 @@ export const CAPABILITIES: Record<ComponentType, CapabilityFlags> = {
   voltmeter: { voltage: false, current: false, resistance: false },
   ohmmeter: { voltage: false, current: false, resistance: false },
   multimeter: { voltage: false, current: false, resistance: false },
+  gate_and: { voltage: false, current: false, resistance: false },
+  gate_or: { voltage: false, current: false, resistance: false },
+  gate_not: { voltage: false, current: false, resistance: false },
+  gate_xor: { voltage: false, current: false, resistance: false },
+  gate_nand: { voltage: false, current: false, resistance: false },
+  gate_nor: { voltage: false, current: false, resistance: false },
+  gate_buffer: { voltage: false, current: false, resistance: false },
+  gate_xnor: { voltage: false, current: false, resistance: false },
 };
 
 export const COMPONENT_LABEL_HE: Record<ComponentType, string> = {
   wire: "תיל חשמלי",
+  wire_corner: "תיל פינה",
+  wire_t: "צומת T",
+  wire_plus: "צומת +",
   battery: "סוללה",
   resistor: "נגד",
   bulb: "נורה",
@@ -46,11 +71,22 @@ export const COMPONENT_LABEL_HE: Record<ComponentType, string> = {
   voltmeter: "וולטמטר",
   ohmmeter: "אוהמטר",
   multimeter: "מולטימטר",
+  gate_and: "AND",
+  gate_or: "OR",
+  gate_not: "NOT",
+  gate_xor: "XOR",
+  gate_nand: "NAND",
+  gate_nor: "NOR",
+  gate_buffer: "BUFFER",
+  gate_xnor: "XNOR",
 };
 
 // Creative default name prefixes (auto-incremented).
 export const NAME_PREFIX: Record<ComponentType, string> = {
   wire: "wire",
+  wire_corner: "corner",
+  wire_t: "tjoint",
+  wire_plus: "node",
   battery: "battery",
   resistor: "resistor",
   bulb: "bulb",
@@ -60,6 +96,14 @@ export const NAME_PREFIX: Record<ComponentType, string> = {
   voltmeter: "volt",
   ohmmeter: "ohm",
   multimeter: "multi",
+  gate_and: "and",
+  gate_or: "or",
+  gate_not: "not",
+  gate_xor: "xor",
+  gate_nand: "nand",
+  gate_nor: "nor",
+  gate_buffer: "buf",
+  gate_xnor: "xnor",
 };
 
 import type { Quantity } from "./units";
@@ -104,6 +148,29 @@ export function terminalPositions(c: PlacedComponent): [Terminal, Terminal] {
   ];
 }
 
+// Multi-terminal connectors (junction nodes). All terminals share a node
+// (no resistance). Used for L corners, T-joints and + crossings.
+const CONNECTOR_OFFSETS: Partial<Record<ComponentType, { x: number; y: number }[]>> = {
+  wire_corner: [{ x: -40, y: 0 }, { x: 0, y: -40 }],
+  wire_t: [{ x: -40, y: 0 }, { x: 40, y: 0 }, { x: 0, y: -40 }],
+  wire_plus: [{ x: -40, y: 0 }, { x: 40, y: 0 }, { x: 0, y: -40 }, { x: 0, y: 40 }],
+};
+
+export function isConnector(t: ComponentType): boolean {
+  return t === "wire_corner" || t === "wire_t" || t === "wire_plus";
+}
+
+export function allTerminalPositions(c: PlacedComponent): { x: number; y: number }[] {
+  const offs = CONNECTOR_OFFSETS[c.type];
+  if (offs) {
+    const rad = (c.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return offs.map((o) => ({ x: c.x + o.x * cos - o.y * sin, y: c.y + o.x * sin + o.y * cos }));
+  }
+  const [t0, t1] = terminalPositions(c);
+  return [{ x: t0.x, y: t0.y }, { x: t1.x, y: t1.y }];
+}
+
 export function isValidUnknownName(name: string): boolean {
   return /^[A-Za-z][A-Za-z0-9_]*$/.test(name);
 }
@@ -124,10 +191,10 @@ export function parseField(raw: string): FieldParse {
     if (!Number.isFinite(n)) return { kind: "error", message: "ערך לא חוקי" };
     return { kind: "number", value: n };
   }
-  if (isValidUnknownName(v)) return { kind: "unknown", name: v };
+  if (isValidUnknownName(v)) return { kind: "error", message: "יש להזין מספר בלבד" };
   return {
     kind: "error",
-    message: "נעלם חייב להתחיל באות באנגלית, ואז אותיות/ספרות בלבד",
+    message: "יש להזין מספר בלבד",
   };
 }
 

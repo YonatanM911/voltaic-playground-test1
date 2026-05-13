@@ -2,7 +2,7 @@
 // zoom, focus (recenter), clear, and the live search field.
 import { Link } from "@tanstack/react-router";
 import {
-  Home, Settings, Hand, MousePointer2, Trash2, RotateCw, ZoomIn, ZoomOut, Crosshair, Search,
+  Home, Settings, Hand, MousePointer2, Trash2, RotateCw, ZoomIn, ZoomOut, Crosshair, Search, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ interface Props {
   tool: Tool;
   setTool: (t: Tool) => void;
   onClear: () => void;
+  onGoHome: () => void;
   onRotateSelected: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 export function LabToolbar({
-  tool, setTool, onClear, onRotateSelected, onZoomIn, onZoomOut, onFocus, search, setSearch, searchCount,
+  tool, setTool, onClear, onGoHome, onRotateSelected, onZoomIn, onZoomOut, onFocus, search, setSearch, searchCount,
 }: Props) {
   return (
     <div
@@ -30,9 +31,9 @@ export function LabToolbar({
       className="pointer-events-auto fixed start-2 top-2 z-30 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1 rounded-lg border border-border bg-card/90 p-2 shadow-lg backdrop-blur"
       style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
     >
-      <Link to="/">
-        <Button size="icon" variant="ghost" title="דף הבית"><Home className="size-5" /></Button>
-      </Link>
+      <Button size="icon" variant="ghost" title="דף הבית" onClick={onGoHome}>
+        <Home className="size-5" />
+      </Button>
       <Link to="/settings">
         <Button size="icon" variant="ghost" title="הגדרות"><Settings className="size-5" /></Button>
       </Link>
@@ -43,6 +44,10 @@ export function LabToolbar({
       <Button size="icon" variant={tool === "pan" ? "default" : "ghost"} onClick={() => setTool("pan")} title="הזזת מסך">
         <Hand className="size-5" />
       </Button>
+      <span className="mx-1 h-6 w-px bg-border" />
+      <Link to="/guide">
+        <Button size="icon" variant="ghost" title="הדרכה"><BookOpen className="size-5" /></Button>
+      </Link>
       <span className="mx-1 h-6 w-px bg-border" />
       <Button size="icon" variant="ghost" onClick={onRotateSelected} title="סובב (R / ר)">
         <RotateCw className="size-5" />

@@ -89,7 +89,7 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
         it.setter({ ...it.state, error: null });
         parsed[i] =
           r.kind === "number" ? toBase(r.value, it.unit, it.q)
-            : r.kind === "unknown" ? r.name
+            : r.kind === "unknown" ? null
             : null;
       }
     });
@@ -179,9 +179,6 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
               />
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            הקלד מספר ביחידות שנבחרו, או שם נעלם המתחיל באות באנגלית (לדוגמה t1).
-          </p>
         </div>
         <DialogFooter className="flex-row-reverse gap-2 sm:justify-start">
           <Button onClick={validateAndCommit}>שמור</Button>
@@ -218,18 +215,18 @@ function FieldBox({
         <Label>{label} ({BASE_UNIT[q]})</Label>
         <span className="text-[11px] text-muted-foreground">{reading}</span>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 px-1">
         <Input
           value={state.raw}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          placeholder={disabled ? "לא ניתן לעריכה ברכיב זה" : "ערך או נעלם"}
-          className="flex-1"
+          placeholder={disabled ? "לא ניתן לעריכה ברכיב זה" : "ערך מספרי"}
+          className="flex-1 min-w-0"
         />
         <select
           value={unit}
           onChange={(e) => onUnitChange(e.target.value)}
-          className="rounded-md border border-input bg-background px-2 text-sm"
+          className="w-20 shrink-0 rounded-md border border-input bg-background px-2 pe-6 text-sm"
         >
           {units.map((u) => (
             <option key={u} value={u}>{u}</option>

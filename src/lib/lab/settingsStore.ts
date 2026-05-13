@@ -6,7 +6,6 @@ import type { Quantity } from "./units";
 export interface AppSettings {
   defaultUnit: Record<Quantity, string>; // e.g. { voltage: "V", ... }
   showNames: boolean;
-  showElectronFlow: boolean;
 }
 
 const KEY = "voltica-settings-v2";
@@ -14,7 +13,6 @@ const KEY = "voltica-settings-v2";
 const DEFAULTS: AppSettings = {
   defaultUnit: { voltage: "V", current: "A", resistance: "Ω" },
   showNames: true,
-  showElectronFlow: true,
 };
 
 export function loadSettings(): AppSettings {
