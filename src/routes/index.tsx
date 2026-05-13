@@ -40,11 +40,6 @@ function HomePage() {
           <Link to="/lab">
             <Button size="lg" className="px-12 py-6 text-lg">כניסה למעבדה</Button>
           </Link>
-          <Link to="/guide">
-            <Button size="lg" variant="secondary" className="px-12 py-6 text-lg">
-              <BookOpen className="me-2 size-5" /> הדרכה
-            </Button>
-          </Link>
           <Link to="/settings">
             <Button size="lg" variant="outline" className="px-12 py-6 text-lg">
               <Settings className="me-2 size-5" /> הגדרות
