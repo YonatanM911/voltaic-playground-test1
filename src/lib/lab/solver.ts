@@ -508,9 +508,11 @@ function computeAmmeterCurrent(
   return 0;
 }
 
-// Equivalent resistance between an ohmmeter's two terminals, with all
-// sources zeroed (batteries → wire, diodes → wire). Solved by injecting
-// 1A at terminal A and grounding terminal B, then R = V(A).
+// Equivalent resistance between an ohmmeter's two terminals. Following the
+// physical procedure for measuring resistance, voltage sources are removed
+// from the circuit (treated as OPEN — i.e. ignored entirely), so a battery
+// in series with the resistor under test does not short it out. Wires,
+// connectors, closed switches and ammeters are treated as ideal conductors.
 function computeEquivR(
   meter: { c: PlacedComponent; nodes: number[] },
   eps: { c: PlacedComponent; nodes: number[] }[],
@@ -518,8 +520,6 @@ function computeEquivR(
   compOfNode: Map<number, number>,
   cc: number
 ): number | null {
-  // Build a sub-UF that mirrors the live one but additionally treats
-  // batteries and diodes as wires (zero R).
   const sub = new UF();
   const remap = new Map<number, number>();
   // Collect all original-canonical nodes in this CC
@@ -530,10 +530,12 @@ function computeEquivR(
   allNodes.add(uf.find(meter.nodes[1]));
   for (const n of allNodes) remap.set(n, sub.add());
   const subOf = (n: number): number => remap.get(uf.find(n))!;
-  // Merge for every wire-equivalent edge, INCLUDING batteries/diodes.
+  // Merge for every wire-equivalent edge (wires + ammeters act as ideal
+  // conductors). Batteries and diodes are deliberately omitted: an ohmmeter
+  // assumes the device under test is de-energised.
   for (const ce of eps) {
     const k = kindOf(ce.c);
-    if (k === "wire" || k === "battery" || k === "diode") {
+    if (k === "wire" || k === "ammeter") {
       const a0 = uf.find(ce.nodes[0]);
       if (!allNodes.has(a0)) continue;
       for (let i = 1; i < ce.nodes.length; i++) {
