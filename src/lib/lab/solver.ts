@@ -54,6 +54,10 @@ const LOOP_COLORS = [
 ];
 
 const DIODE_DROP_DEFAULT = 0.7;
+// Ideal ammeter ≈ very small resistance. Modeling it as a tiny resistor
+// (instead of a 0 V source) keeps the MNA matrix well-conditioned even when
+// the user accidentally places the ammeter in parallel with another element.
+const AMMETER_R = 1e-6;
 
 const num = (v: number | string | null): number | null =>
   typeof v === "number" ? v : null;
