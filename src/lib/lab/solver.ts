@@ -324,14 +324,17 @@ export function solve(components: PlacedComponent[]): SolveResult {
   if (N > 0) {
     const A: number[][] = Array.from({ length: N }, () => new Array(N).fill(0));
     const bv: number[] = new Array(N).fill(0);
-    // Resistor stamps
+    // Resistor + ammeter stamps
     for (const ce of eps) {
-      if (kindOf(ce.c) !== "resistor") continue;
+      const kk = kindOf(ce.c);
+      let r: number | null = null;
+      if (kk === "resistor") r = num(ce.c.resistance);
+      else if (kk === "ammeter") r = AMMETER_R;
+      else continue;
+      if (r == null || r <= 0) continue;
       const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
       const cc = compOfNode.get(a);
       if (cc == null || !compHasBattery.has(cc)) continue;
-      const r = num(ce.c.resistance);
-      if (r == null || r <= 0) continue;
       const g = 1 / r;
       const ia = nodeIdxFinal.get(a); const ib = nodeIdxFinal.get(b);
       if (ia != null) A[ia][ia] += g;
