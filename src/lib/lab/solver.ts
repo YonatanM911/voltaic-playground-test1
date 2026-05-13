@@ -300,25 +300,21 @@ export function solve(components: PlacedComponent[]): SolveResult {
   const nodeIdxFinal = new Map<number, number>();
   for (const n of nodeIdx.keys()) nodeIdxFinal.set(n, nIdx++);
 
-  // Voltage sources
+  // Voltage sources (battery + diode only — ammeter is now stamped as a
+  // tiny resistor below, which avoids a singular system when it's placed in
+  // parallel with another element).
   for (const ce of eps) {
     const k = kindOf(ce.c);
-    if (k !== "battery" && k !== "diode" && k !== "ammeter") continue;
+    if (k !== "battery" && k !== "diode") continue;
     const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
     const cc = compOfNode.get(a);
     if (cc == null || !compHasBattery.has(cc)) continue;
     let v: number;
     if (k === "battery") {
       v = num(ce.c.voltage) ?? 0;
-    } else if (k === "diode") {
-      // Diode: forward direction = a→b (terminal 0 → terminal 1).
-      // Forward bias: V(a) - V(b) = drop. We'll assume forward; if current
-      // ends up negative, that's reverse and ideally would be open — for
-      // now we accept the linear approximation.
-      v = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
     } else {
-      // Ammeter: ideal — zero voltage drop, current is the unknown.
-      v = 0;
+      // Diode: forward direction = a→b (terminal 0 → terminal 1).
+      v = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
     }
     vSourceList.push({ ce, v, nA: a, nB: b, idx: vSourceList.length, cc });
   }
