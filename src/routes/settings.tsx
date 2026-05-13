@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   const [theme, setTh] = useState<Theme>("dark");
   const [settings, updateSettings] = useAppSettings();
+  const router = useRouter();
 
   useEffect(() => {
     const t = getInitialTheme();
@@ -33,11 +34,9 @@ function SettingsPage() {
   return (
     <div dir="rtl" className="min-h-screen bg-background px-6 py-10 text-foreground">
       <div className="mx-auto max-w-xl">
-        <Link to="/">
-          <Button variant="ghost" size="sm" className="mb-6">
-            <ArrowRight className="me-1 size-4" /> חזרה לדף הבית
-          </Button>
-        </Link>
+        <Button variant="ghost" size="sm" className="mb-6" onClick={() => router.history.back()}>
+          <ArrowRight className="me-1 size-4" /> חזרה
+        </Button>
         <h1 className="mb-6 text-3xl font-bold">הגדרות</h1>
 
         <section className="rounded-lg border border-border bg-card p-5">
@@ -76,13 +75,6 @@ function SettingsPage() {
               onCheckedChange={(v) => updateSettings({ showNames: v })}
             />
             <Label>הצג שמות רכיבים על הלוח</Label>
-          </div>
-          <div className="mt-3 flex flex-row-reverse items-center justify-between">
-            <Switch
-              checked={settings.showElectronFlow}
-              onCheckedChange={(v) => updateSettings({ showElectronFlow: v })}
-            />
-            <Label>הצג זרימת אלקטרונים על תילים</Label>
           </div>
         </section>
       </div>

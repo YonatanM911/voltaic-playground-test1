@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { LabCanvas, type Tool } from "@/components/lab/LabCanvas";
 import { LabToolbar } from "@/components/lab/LabToolbar";
 import { Palette } from "@/components/lab/Palette";
 import { EditDialog } from "@/components/lab/EditDialog";
+import { ImportDialog, type SavedStructure } from "@/components/lab/ImportDialog";
 import {
   type ComponentType,
   type PlacedComponent,
@@ -44,18 +46,55 @@ function defaultsFor(type: ComponentType): Partial<PlacedComponent> {
 }
 
 function LabPage() {
+  const navigate = useNavigate();
   const [components, setComponents] = useState<PlacedComponent[]>([]);
   const [tool, setTool] = useState<Tool>("select");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmHome, setConfirmHome] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [view, setView] = useState({ x: 200, y: 200, zoom: 1 });
   const [search, setSearch] = useState("");
   const [clipboard, setClipboard] = useState<PlacedComponent[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [savedStructures, setSavedStructures] = useState<SavedStructure[]>([]);
+  const [saveNameOpen, setSaveNameOpen] = useState(false);
+  const [saveNameValue, setSaveNameValue] = useState("");
   const [settings] = useAppSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { applyTheme(getInitialTheme()); }, []);
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem("voltica-session-structures");
+      if (raw) setSavedStructures(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+
+  // --- Lab state persistence (survives navigation to /settings or /guide) ---
+  // Restore on mount.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem("voltica-lab-state");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { components?: PlacedComponent[]; view?: { x: number; y: number; zoom: number } };
+        if (parsed.components) setComponents(parsed.components);
+        if (parsed.view) setView(parsed.view);
+      }
+    } catch { /* ignore */ }
+    restoredRef.current = true;
+  }, []);
+  // Persist on change (after first restore).
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try {
+      window.sessionStorage.setItem(
+        "voltica-lab-state",
+        JSON.stringify({ components, view })
+      );
+    } catch { /* ignore */ }
+  }, [components, view]);
 
   const solved = useMemo(() => solve(components), [components]);
 
@@ -98,6 +137,66 @@ function LabPage() {
     handleDrop(p.type, p.rotation, { x: snap(wx), y: snap(wy) });
   }, [view, handleDrop]);
 
+  const persistStructures = useCallback((next: SavedStructure[]) => {
+    setSavedStructures(next);
+    try { window.sessionStorage.setItem("voltica-session-structures", JSON.stringify(next)); } catch { /* ignore */ }
+  }, []);
+
+  const insertComponentFromImport = useCallback((type: ComponentType) => {
+    const r = wrapperRef.current?.getBoundingClientRect();
+    const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
+    const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
+    handleDrop(type, 0, { x: snap(wx), y: snap(wy) });
+    setImportOpen(false);
+  }, [handleDrop, view]);
+
+  const defaultSaveName = useCallback(() => {
+    const used = new Set(savedStructures.map((s) => s.name));
+    let i = 1;
+    while (used.has(`שמירה ${i}`)) i++;
+    return `שמירה ${i}`;
+  }, [savedStructures]);
+
+  const saveSelectedStructure = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setSaveNameValue(defaultSaveName());
+    setSaveNameOpen(true);
+  }, [selectedIds, defaultSaveName]);
+
+  const confirmSaveStructure = useCallback(() => {
+    const selected = components.filter((c) => selectedIds.has(c.id));
+    if (selected.length === 0) { setSaveNameOpen(false); return; }
+    const name = saveNameValue.trim() || defaultSaveName();
+    const next: SavedStructure[] = [
+      ...savedStructures,
+      { id: `s_${Date.now().toString(36)}`, name, components: selected.map((c) => ({ ...c })) },
+    ];
+    persistStructures(next);
+    setSaveNameOpen(false);
+  }, [components, selectedIds, savedStructures, persistStructures, saveNameValue, defaultSaveName]);
+
+  const insertStructure = useCallback((structure: SavedStructure) => {
+    if (structure.components.length === 0) return;
+    const r = wrapperRef.current?.getBoundingClientRect();
+    const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
+    const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
+    const cx = structure.components.reduce((s, c) => s + c.x, 0) / structure.components.length;
+    const cy = structure.components.reduce((s, c) => s + c.y, 0) / structure.components.length;
+    setComponents((prev) => {
+      const created: PlacedComponent[] = [];
+      const ids: string[] = [];
+      const all = [...prev];
+      for (const c of structure.components) {
+        const id = newId();
+        ids.push(id);
+        created.push({ ...c, id, name: nextComponentName(c.type, all.concat(created)), x: snap(wx + (c.x - cx)), y: snap(wy + (c.y - cy)) });
+      }
+      queueMicrotask(() => setSelectedIds(new Set(ids)));
+      return [...prev, ...created];
+    });
+    setImportOpen(false);
+  }, [view]);
+
   const handleSave = (next: PlacedComponent) => {
     setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)));
     setEditingId(null);
@@ -114,9 +213,23 @@ function LabPage() {
         : prev.length > 0 ? new Set([prev[prev.length - 1].id]) : new Set<string>();
       if (ids.size === 0) return prev;
       const order: PlacedComponent["rotation"][] = [0, 90, 180, 270];
-      return prev.map((c) =>
-        ids.has(c.id) ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] } : c
-      );
+      // Rotate the entire selected structure 90° clockwise around its centroid:
+      // both the position of every member AND each member's own orientation.
+      const sel = prev.filter((c) => ids.has(c.id));
+      if (sel.length === 1) {
+        return prev.map((c) =>
+          ids.has(c.id) ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] } : c
+        );
+      }
+      const cx = sel.reduce((s, c) => s + c.x, 0) / sel.length;
+      const cy = sel.reduce((s, c) => s + c.y, 0) / sel.length;
+      // 90° CW: (x,y) → (cx - (y-cy), cy + (x-cx))
+      return prev.map((c) => {
+        if (!ids.has(c.id)) return c;
+        const nx = snap(cx - (c.y - cy));
+        const ny = snap(cy + (c.x - cx));
+        return { ...c, x: nx, y: ny, rotation: order[(order.indexOf(c.rotation) + 1) % 4] };
+      });
     });
   }, [selectedIds]);
 
@@ -243,6 +356,8 @@ function LabPage() {
         setSelectedIds={setSelectedIds}
         onCopySelected={copySelected}
         onDeleteSelected={deleteSelected}
+        onRotateSelected={rotateSelected}
+        onSaveSelected={saveSelectedStructure}
         view={view}
         setView={setView}
         searchHits={searchHits}
@@ -252,6 +367,7 @@ function LabPage() {
         tool={tool}
         setTool={setTool}
         onClear={() => setConfirmClear(true)}
+        onGoHome={() => setConfirmHome(true)}
         onRotateSelected={rotateSelected}
         onZoomIn={() => zoomBy(1.25)}
         onZoomOut={() => zoomBy(1 / 1.25)}
@@ -261,23 +377,18 @@ function LabPage() {
         searchCount={searchHits.size}
       />
 
-      {solved.unknowns.length > 0 && (
-        <div dir="rtl" className="pointer-events-auto fixed end-2 top-2 z-30 max-w-xs rounded-lg border border-border bg-card/90 p-3 shadow-lg backdrop-blur">
-          <div className="mb-2 text-sm font-semibold">פתרון נעלמים</div>
-          <ul className="space-y-1 text-sm">
-            {solved.unknowns.map((u) => (
-              <li key={u.name} className="flex justify-between gap-2">
-                <span className="font-mono">{u.name}</span>
-                <span className="text-muted-foreground">
-                  = {Number.isInteger(u.value) ? u.value : u.value.toFixed(3)} {u.unit}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <Palette onDrop={onPaletteDrop} onOpenImport={() => setImportOpen(true)} />
 
-      <Palette onDrop={onPaletteDrop} />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        savedStructures={savedStructures}
+        canSaveSelection={selectedIds.size > 0}
+        isLoggedIn={true}
+        onSaveSelection={saveSelectedStructure}
+        onInsertComponent={insertComponentFromImport}
+        onInsertStructure={insertStructure}
+      />
 
       <EditDialog
         component={editing}
@@ -298,9 +409,53 @@ function LabPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>ביטול</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setComponents([]); setSelectedIds(new Set()); setConfirmClear(false); }}>
+            <AlertDialogAction onClick={() => {
+              setComponents([]); setSelectedIds(new Set()); setConfirmClear(false);
+              try { window.sessionStorage.removeItem("voltica-lab-state"); } catch { /* ignore */ }
+            }}>
               נקה
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmHome} onOpenChange={setConfirmHome}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>חזרה לדף הבית?</AlertDialogTitle>
+            <AlertDialogDescription>כל הרכיבים שעל הלוח ימחקו. הפעולה אינה הפיכה.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ביטול</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              try { window.sessionStorage.removeItem("voltica-lab-state"); } catch { /* ignore */ }
+              setConfirmHome(false);
+              navigate({ to: "/" });
+            }}>
+              חזור
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={saveNameOpen} onOpenChange={setSaveNameOpen}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>שמירת מבנה</AlertDialogTitle>
+            <AlertDialogDescription>בחר שם למבנה השמור.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={saveNameValue}
+            onChange={(e) => setSaveNameValue(e.target.value)}
+            placeholder={defaultSaveName()}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmSaveStructure(); } }}
+            className="mt-2 h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            autoFocus
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>ביטול</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveStructure}>שמור</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

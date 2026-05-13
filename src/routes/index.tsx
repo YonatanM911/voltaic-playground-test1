@@ -1,8 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Settings, Zap } from "lucide-react";
-import { applyTheme, getInitialTheme } from "@/lib/theme";
+import { Settings, Sun, Moon, BookOpen } from "lucide-react";
+import { applyTheme, getInitialTheme, setTheme as persistTheme, type Theme } from "@/lib/theme";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -17,12 +17,14 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  useEffect(() => { applyTheme(getInitialTheme()); }, []);
+  const [theme, setTh] = useState<Theme>("dark");
+  useEffect(() => { const t = getInitialTheme(); setTh(t); applyTheme(t); }, []);
+  const toggleTheme = () => { const n = theme === "dark" ? "light" : "dark"; setTh(n); persistTheme(n); };
   return (
     <div dir="rtl" className="relative flex min-h-screen flex-col items-center overflow-hidden bg-background px-6 pt-[18vh] text-foreground">
-      <Link to="/settings" className="absolute start-4 top-4">
-        <Button variant="ghost" size="icon"><Settings className="size-5" /></Button>
-      </Link>
+      <Button variant="ghost" size="icon" onClick={toggleTheme} className="absolute start-4 top-4" title="מצב לילה / יום">
+        {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+      </Button>
 
       <div aria-hidden className="pointer-events-none absolute -left-32 top-1/4 h-[420px] w-[420px] rounded-full opacity-30 blur-3xl"
         style={{ background: "radial-gradient(circle, var(--accent), transparent 60%)" }} />
@@ -30,19 +32,21 @@ function HomePage() {
         style={{ background: "radial-gradient(circle, var(--primary), transparent 60%)" }} />
 
       <div className="relative z-10 w-full max-w-2xl text-center">
-        <div className="mx-auto mb-8 inline-flex items-center justify-center rounded-full border border-border bg-card/60 px-5 py-2 text-sm font-medium tracking-wider backdrop-blur">
-          <Zap className="me-2 size-4" /> Voltica
-        </div>
         <h1 className="text-balance text-6xl font-bold tracking-tight md:text-8xl">
           Voltica <span className="text-primary">Laboratories</span>
         </h1>
 
-        <div className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-center gap-4">
           <Link to="/lab">
             <Button size="lg" className="px-12 py-6 text-lg">כניסה למעבדה</Button>
           </Link>
+          <Link to="/guide">
+            <Button size="lg" variant="secondary" className="px-12 py-6 text-lg">
+              <BookOpen className="me-2 size-5" /> הדרכה
+            </Button>
+          </Link>
           <Link to="/settings">
-            <Button size="lg" variant="outline" className="px-10 py-6 text-lg">
+            <Button size="lg" variant="outline" className="px-12 py-6 text-lg">
               <Settings className="me-2 size-5" /> הגדרות
             </Button>
           </Link>

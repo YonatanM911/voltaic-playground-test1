@@ -8,9 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentType, PlacedComponent } from "@/lib/lab/types";
 import { COMPONENT_LABEL_HE } from "@/lib/lab/types";
 import { ComponentSymbol, PaletteSymbol } from "@/lib/lab/symbols";
+import { Plus } from "lucide-react";
 
 const PALETTE_ITEMS: ComponentType[] = [
   "wire",
+  "wire_corner",
+  "wire_t",
+  "wire_plus",
   "battery",
   "resistor",
   "bulb",
@@ -33,9 +37,10 @@ interface Props {
   // The lab page subscribes to drops via a global event so the canvas
   // (which knows view/zoom) can convert client coords to world coords.
   onDrop: (p: DropPayload) => void;
+  onOpenImport: () => void;
 }
 
-export function Palette({ onDrop }: Props) {
+export function Palette({ onDrop, onOpenImport }: Props) {
   const [drag, setDrag] = useState<{
     type: ComponentType;
     rotation: PlacedComponent["rotation"];
@@ -86,7 +91,20 @@ export function Palette({ onDrop }: Props) {
         className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/90 backdrop-blur"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="mx-auto flex max-w-screen-xl items-stretch gap-2 overflow-x-auto px-3 py-2">
+        <div className="mx-auto max-w-screen-xl overflow-x-auto px-3 py-2 [scrollbar-width:thin]">
+          <div className="mb-2 h-3 min-w-max rounded-full bg-muted" />
+          <div className="flex min-w-max items-stretch gap-2">
+            <button
+              type="button"
+              onClick={onOpenImport}
+              className="flex min-w-[96px] select-none flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-2 text-foreground transition hover:border-primary hover:bg-accent"
+              title="הוספה וייבוא"
+            >
+              <div className="flex h-9 items-center justify-center">
+                <Plus className="size-7" />
+              </div>
+              <div className="text-[11px] font-medium">הוספה</div>
+            </button>
           {PALETTE_ITEMS.map((t) => (
             <button
               key={t}
@@ -104,6 +122,7 @@ export function Palette({ onDrop }: Props) {
               <div className="text-[11px] font-medium">{COMPONENT_LABEL_HE[t]}</div>
             </button>
           ))}
+          </div>
         </div>
       </div>
 

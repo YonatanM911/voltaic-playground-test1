@@ -1,6 +1,5 @@
 // Voltica Laboratories — infinite canvas with pan, pinch/wheel zoom,
-// component placement, marquee selection, search highlighting, electron
-// flow animation on wires, and "open circuit" warnings.
+// component placement, marquee selection, search highlighting, and circuit warnings.
 //
 // Mobile-first: every gesture goes through pointer events with passive
 // touch support; pinch zoom is implemented manually (two-finger gesture).
@@ -15,7 +14,7 @@ import {
 import { PlacedSymbol } from "@/lib/lab/symbols";
 import type { SolveResult } from "@/lib/lab/solver";
 import { Button } from "@/components/ui/button";
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Trash2, RotateCw, Save } from "lucide-react";
 import type { AppSettings } from "@/lib/lab/settingsStore";
 
 export type Tool = "select" | "pan";
@@ -32,6 +31,8 @@ interface Props {
   setSelectedIds: (ids: Set<string>) => void;
   onCopySelected: () => void;
   onDeleteSelected: () => void;
+  onRotateSelected: () => void;
+  onSaveSelected: () => void;
   view: { x: number; y: number; zoom: number };
   setView: (v: { x: number; y: number; zoom: number }) => void;
   // ids that match the current search query (highlighted in a special color)
@@ -79,6 +80,8 @@ export function LabCanvas({
   setSelectedIds,
   onCopySelected,
   onDeleteSelected,
+  onRotateSelected,
+  onSaveSelected,
   view,
   setView,
   searchHits,
@@ -306,6 +309,8 @@ export function LabCanvas({
   const meterReading = (c: PlacedComponent): string => {
     const sc = solve.components[c.id];
     if (!sc || !sc.inActiveLoop) return "—";
+    const hasReading = sc.voltage != null || sc.current != null || sc.resistance != null;
+    if (!hasReading) return "—";
     const pickUnit = (q: "voltage" | "current" | "resistance") =>
       c.unitOverrides?.[q] ?? settings.defaultUnit[q];
     const fmt = (v: number | null, q: "voltage" | "current" | "resistance"): string => {
@@ -324,7 +329,9 @@ export function LabCanvas({
     if (c.type === "voltmeter") return fmt(sc.voltage, "voltage");
     if (c.type === "ohmmeter") return fmt(sc.resistance, "resistance");
     if (c.type === "multimeter") {
-      return [fmt(sc.voltage, "voltage"), fmt(sc.current, "current"), fmt(sc.resistance, "resistance")].join(" / ");
+      return [fmt(sc.voltage, "voltage"), fmt(sc.current, "current"), fmt(sc.resistance, "resistance")]
+        .filter((part) => part !== "—")
+        .join(" / ") || "—";
     }
     return "—";
   };
@@ -346,10 +353,6 @@ export function LabCanvas({
       };
     }
   }
-
-  // Determine if any diode is in the same loop as a wire — used to force
-  // electron-flow direction on wires according to diode orientation.
-  // (Simplified: solver already returns flowDirection per wire from the loop solution.)
 
   return (
     <div
@@ -408,26 +411,6 @@ export function LabCanvas({
                   />
                 )}
                 <PlacedSymbol c={c} color={color} bulbLit={lit} />
-                {/* Electron flow animation — only on wires, only when current flows */}
-                {c.type === "wire" && sc?.inActiveLoop && (sc.current ?? 0) !== 0 && settings.showElectronFlow && (
-                  <g transform={`translate(${c.x}, ${c.y}) rotate(${c.rotation})`}>
-                    <line
-                      x1={-38} y1={0} x2={38} y2={0}
-                      stroke="oklch(0.85 0.22 60)"
-                      strokeWidth={2}
-                      strokeDasharray="4 6"
-                      opacity={0.85}
-                    >
-                      <animate
-                        attributeName="stroke-dashoffset"
-                        from={sc.flowDirection >= 0 ? 0 : 0}
-                        to={sc.flowDirection >= 0 ? -20 : 20}
-                        dur="0.7s"
-                        repeatCount="indefinite"
-                      />
-                    </line>
-                  </g>
-                )}
                 {settings.showNames && (
                   <text
                     x={c.x}
@@ -456,29 +439,36 @@ export function LabCanvas({
           })}
 
           {/* Open circuit warnings */}
-          {solve.openWarnings.map((w, i) => (
-            <g key={`ow${i}`}>
-              <rect
-                x={w.centerX - 50}
-                y={w.centerY - 12}
-                width={100}
-                height={20}
-                rx={4}
-                fill="var(--destructive)"
-                opacity={0.92}
-              />
-              <text
-                x={w.centerX}
-                y={w.centerY + 3}
-                textAnchor="middle"
-                fontSize={11}
-                fontWeight={700}
-                fill="var(--destructive-foreground)"
-              >
-                מעגל פתוח
-              </text>
-            </g>
-          ))}
+          {solve.openWarnings.map((w, i) => {
+            const label = w.reason === "missing_consumer" ? "חסר צרכן"
+              : w.reason === "missing_source" ? "חסר ספק"
+              : w.reason === "switch_open" ? "מפסק פתוח"
+              : "מעגל פתוח";
+            const wid = label.length * 8 + 22;
+            return (
+              <g key={`ow${i}`}>
+                <rect
+                  x={w.centerX - wid / 2}
+                  y={w.centerY - 12}
+                  width={wid}
+                  height={20}
+                  rx={4}
+                  fill="var(--destructive)"
+                  opacity={0.92}
+                />
+                <text
+                  x={w.centerX}
+                  y={w.centerY + 3}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fontWeight={700}
+                  fill="var(--destructive-foreground)"
+                >
+                  {label}
+                </text>
+              </g>
+            );
+          })}
 
           {marquee && (
             <rect
@@ -502,8 +492,14 @@ export function LabCanvas({
           className="pointer-events-auto absolute z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/95 p-1 shadow-lg backdrop-blur"
           style={{ left: actionBar.left, top: Math.max(8, actionBar.top) }}
         >
+          <Button size="sm" variant="ghost" onClick={onRotateSelected} title="סובב 90° (R)">
+            <RotateCw className="size-4" /> סובב
+          </Button>
           <Button size="sm" variant="ghost" onClick={onCopySelected} title="העתק (Ctrl+C/D)">
             <Copy className="size-4" /> העתק
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onSaveSelected} title="שמור מבנה מסומן">
+            <Save className="size-4" /> שמור
           </Button>
           <Button size="sm" variant="ghost" onClick={onDeleteSelected} title="מחק (Delete)">
             <Trash2 className="size-4" /> מחק
