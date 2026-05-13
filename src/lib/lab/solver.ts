@@ -416,7 +416,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
         const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
         if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
         sc.voltage = num(ce.c.voltage);
-      } else if (k === "diode") {
+      }
+    } else if (k === "diode") {
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
       if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
       sc.voltage = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
