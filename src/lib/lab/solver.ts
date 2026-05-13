@@ -259,8 +259,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
     }
   }
 
-  // ----- 3. Identify "active" connected components: those containing a battery -----
-  const compHasBattery = new Set<number>();
+  // ----- 3. Identify "active" connected components: those containing a source -----
+  const compHasSource = new Set<number>();
   const compHasConsumer = new Set<number>();
   const compHasOpenSwitch = new Set<number>();
   // Track open-switch components separately (an open switch cuts the path).
@@ -268,7 +268,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     const cc = compOfNode.get(uf.find(ce.nodes[0]));
     if (cc == null) continue;
     const k = kindOf(ce.c);
-    if (k === "battery") compHasBattery.add(cc);
+    if (k === "battery") compHasSource.add(cc);
     if (k === "resistor" || k === "diode") compHasConsumer.add(cc);
     if (ce.c.type === "switch" && !ce.c.closed) {
       // If the switch were closed, would it bridge two nodes that otherwise
@@ -287,7 +287,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
   const vSourceList: { ce: Endpoint; v: number; nA: number; nB: number; idx: number; cc: number }[] = [];
   const ccActiveNodes = new Map<number, Set<number>>();
 
-  for (const cc of compHasBattery) {
+  for (const cc of compHasSource) {
     const nodes: number[] = [];
     for (const [n, c] of compOfNode) if (c === cc) nodes.push(n);
     if (nodes.length === 0) continue;
@@ -308,9 +308,10 @@ export function solve(components: PlacedComponent[]): SolveResult {
     if (k !== "battery" && k !== "diode") continue;
     const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
     const cc = compOfNode.get(a);
-    if (cc == null || !compHasBattery.has(cc)) continue;
+    if (cc == null || !compHasSource.has(cc)) continue;
     let v: number;
     if (k === "battery") {
+      if (num(ce.c.current) != null) continue; // current source, not voltage
       v = num(ce.c.voltage) ?? 0;
     } else {
       // Diode: forward direction = a→b (terminal 0 → terminal 1).
@@ -334,12 +335,24 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (r == null || r <= 0) continue;
       const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
       const cc = compOfNode.get(a);
-      if (cc == null || !compHasBattery.has(cc)) continue;
+      if (cc == null || !compHasSource.has(cc)) continue;
       const g = 1 / r;
       const ia = nodeIdxFinal.get(a); const ib = nodeIdxFinal.get(b);
       if (ia != null) A[ia][ia] += g;
       if (ib != null) A[ib][ib] += g;
       if (ia != null && ib != null) { A[ia][ib] -= g; A[ib][ia] -= g; }
+    }
+    // Current source stamps (battery with current set)
+    for (const ce of eps) {
+      if (ce.c.type !== "battery") continue;
+      const current = num(ce.c.current);
+      if (current == null) continue;
+      const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
+      const cc = compOfNode.get(a);
+      if (cc == null || !compHasSource.has(cc)) continue;
+      const ia = nodeIdxFinal.get(a); const ib = nodeIdxFinal.get(b);
+      if (ia != null) bv[ia] -= current;
+      if (ib != null) bv[ib] += current;
     }
     // Voltage source stamps
     vSourceList.forEach((vs, k) => {
@@ -362,7 +375,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
   // ----- 5. Loop coloring per active component -----
   const ccLoopId = new Map<number, number>();
   let nextLoop = 0;
-  for (const cc of compHasBattery) {
+  for (const cc of compHasSource) {
     if (!compHasConsumer.has(cc)) continue;       // skip "missing_consumer" comps
     if (compHasOpenSwitch.has(cc)) continue;      // skip "switch_open" comps
     ccLoopId.set(cc, nextLoop);
@@ -395,10 +408,15 @@ export function solve(components: PlacedComponent[]): SolveResult {
         sc.resistance = r;
       }
     } else if (k === "battery") {
-      const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
-      if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
-      sc.voltage = num(ce.c.voltage);
-    } else if (k === "diode") {
+      const current = num(ce.c.current);
+      if (current != null) {
+        sc.current = current;
+        sc.voltage = Math.abs(dV);
+      } else {
+        const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
+        if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
+        sc.voltage = num(ce.c.voltage);
+      } else if (k === "diode") {
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
       if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
       sc.voltage = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
@@ -418,7 +436,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
   }
 
   // ----- 7. Open warnings -----
-  for (const cc of compHasBattery) {
+  for (const cc of compHasSource) {
     if (ccLoopId.has(cc)) continue;
     // Pick representative center: average of battery components' positions.
     const ids: string[] = [];

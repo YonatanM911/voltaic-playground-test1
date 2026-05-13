@@ -308,7 +308,7 @@ export function LabCanvas({
   // Format a meter reading using settings/per-component unit overrides.
   const meterReading = (c: PlacedComponent): string => {
     const sc = solve.components[c.id];
-    if (!sc || !sc.inActiveLoop) return "—";
+    if (!sc) return "—";
     const hasReading = sc.voltage != null || sc.current != null || sc.resistance != null;
     if (!hasReading) return "—";
     const pickUnit = (q: "voltage" | "current" | "resistance") =>

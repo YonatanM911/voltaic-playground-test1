@@ -38,7 +38,7 @@ export const CAPABILITIES: Record<ComponentType, CapabilityFlags> = {
   wire_corner: { voltage: false, current: false, resistance: false },
   wire_t: { voltage: false, current: false, resistance: false },
   wire_plus: { voltage: false, current: false, resistance: false },
-  battery: { voltage: true, current: false, resistance: false },
+  battery: { voltage: true, current: true, resistance: false },
   resistor: { voltage: false, current: false, resistance: true },
   bulb: { voltage: false, current: false, resistance: true },
   switch: { voltage: false, current: false, resistance: false },
