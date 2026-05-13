@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Settings, Sun, Moon, BookOpen } from "lucide-react";
+import { Settings, Sun, Moon } from "lucide-react";
 import { applyTheme, getInitialTheme, setTheme as persistTheme, type Theme } from "@/lib/theme";
 
 export const Route = createFileRoute("/")({
@@ -39,11 +39,6 @@ function HomePage() {
         <div className="mt-12 flex flex-col items-center justify-center gap-4">
           <Link to="/lab">
             <Button size="lg" className="px-12 py-6 text-lg">כניסה למעבדה</Button>
-          </Link>
-          <Link to="/guide">
-            <Button size="lg" variant="secondary" className="px-12 py-6 text-lg">
-              <BookOpen className="me-2 size-5" /> הדרכה
-            </Button>
           </Link>
           <Link to="/settings">
             <Button size="lg" variant="outline" className="px-12 py-6 text-lg">
