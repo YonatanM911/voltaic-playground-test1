@@ -403,9 +403,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
       sc.voltage = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
     } else if (ce.c.type === "ammeter") {
-      // Ammeter is a 0V voltage source — current is in the MNA solution.
-      const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
-      if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
+      // Ammeter is stamped as a tiny resistor; its current = ΔV / R_tiny.
+      sc.current = Math.abs(dV) / AMMETER_R;
     } else if (ce.c.type === "voltmeter") {
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "ohmmeter") {
