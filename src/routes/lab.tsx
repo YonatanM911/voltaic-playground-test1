@@ -39,7 +39,7 @@ function defaultsFor(type: ComponentType): Partial<PlacedComponent> {
   const caps = CAPABILITIES[type];
   return {
     voltage: caps.voltage ? (type === "battery" ? 9 : 0.7) : null,
-    current: null,
+    current: type === "battery" ? 1 : null,
     resistance: caps.resistance ? 100 : null,
     closed: type === "switch" ? true : undefined,
   };

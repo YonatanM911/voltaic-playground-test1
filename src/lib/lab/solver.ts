@@ -311,7 +311,6 @@ export function solve(components: PlacedComponent[]): SolveResult {
     if (cc == null || !compHasSource.has(cc)) continue;
     let v: number;
     if (k === "battery") {
-      if (num(ce.c.current) != null) continue; // current source, not voltage
       v = num(ce.c.voltage) ?? 0;
     } else {
       // Diode: forward direction = a→b (terminal 0 → terminal 1).
@@ -341,18 +340,6 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (ia != null) A[ia][ia] += g;
       if (ib != null) A[ib][ib] += g;
       if (ia != null && ib != null) { A[ia][ib] -= g; A[ib][ia] -= g; }
-    }
-    // Current source stamps (battery with current set)
-    for (const ce of eps) {
-      if (ce.c.type !== "battery") continue;
-      const current = num(ce.c.current);
-      if (current == null) continue;
-      const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
-      const cc = compOfNode.get(a);
-      if (cc == null || !compHasSource.has(cc)) continue;
-      const ia = nodeIdxFinal.get(a); const ib = nodeIdxFinal.get(b);
-      if (ia != null) bv[ia] -= current;
-      if (ib != null) bv[ib] += current;
     }
     // Voltage source stamps
     vSourceList.forEach((vs, k) => {
@@ -393,6 +380,11 @@ export function solve(components: PlacedComponent[]): SolveResult {
       sc.inActiveLoop = true;
       sc.loopId = ccLoopId.get(cc)!;
     }
+
+    if (ce.c.type === "ohmmeter" || ce.c.type === "multimeter") {
+      sc.resistance = computeEquivR(ce, eps, uf);
+    }
+
     if (!sc.inActiveLoop) continue;
     if (xSol == null) continue;
 
@@ -409,14 +401,9 @@ export function solve(components: PlacedComponent[]): SolveResult {
       }
     } else if (k === "battery") {
       const current = num(ce.c.current);
-      if (current != null) {
-        sc.current = current;
-        sc.voltage = Math.abs(dV);
-      } else {
-        const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
-        if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
-        sc.voltage = num(ce.c.voltage);
-      }
+      const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
+      sc.current = current ?? (vs ? Math.abs(xSol[nIdx + vs.idx]) : null);
+      sc.voltage = num(ce.c.voltage);
     } else if (k === "diode") {
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
       if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
@@ -427,8 +414,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     } else if (ce.c.type === "voltmeter") {
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "ohmmeter") {
-      // Equivalent resistance between its two nodes, sources zeroed.
-      sc.resistance = computeEquivR(ce, eps, uf, compOfNode, cc!);
+      sc.resistance = computeEquivR(ce, eps, uf);
     } else if (ce.c.type === "multimeter") {
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "wire") {
@@ -535,20 +521,23 @@ function computeAmmeterCurrent(
 function computeEquivR(
   meter: { c: PlacedComponent; nodes: number[] },
   eps: { c: PlacedComponent; nodes: number[] }[],
-  uf: UF,
-  compOfNode: Map<number, number>,
-  cc: number
+  uf: UF
 ): number | null {
   const sub = new UF();
   const remap = new Map<number, number>();
-  // Collect all original-canonical nodes in this CC
+
+  // Collect all canonical nodes. Disconnected passive islands are filtered out
+  // below before solving, so they cannot make the matrix singular.
   const allNodes = new Set<number>();
-  for (const [n, id] of compOfNode) if (id === cc) allNodes.add(n);
-  // Always include the ohmmeter's own terminals (they may not be in CC if isolated).
+  for (const ce of eps) {
+    for (const n of ce.nodes) allNodes.add(uf.find(n));
+  }
   allNodes.add(uf.find(meter.nodes[0]));
   allNodes.add(uf.find(meter.nodes[1]));
+
   for (const n of allNodes) remap.set(n, sub.add());
   const subOf = (n: number): number => remap.get(uf.find(n))!;
+
   // Merge for every wire-equivalent edge (wires + ammeters act as ideal
   // conductors). Batteries and diodes are deliberately omitted: an ohmmeter
   // assumes the device under test is de-energised.
@@ -564,14 +553,56 @@ function computeEquivR(
       }
     }
   }
-  // Resistor edges in the sub-network.
+
   const subA = uf.find(meter.nodes[0]); const subB = uf.find(meter.nodes[1]);
   const subA2 = subOf(subA); const subB2 = subOf(subB);
   if (sub.find(subA2) === sub.find(subB2)) return 0;
+
+  const resistorEdges: { a: number; b: number; r: number }[] = [];
+  for (const ce of eps) {
+    if (kindOf(ce.c) !== "resistor") continue;
+    const r = num(ce.c.resistance);
+    if (r == null || r <= 0) continue;
+    resistorEdges.push({
+      a: sub.find(subOf(ce.nodes[0])),
+      b: sub.find(subOf(ce.nodes[1])),
+      r,
+    });
+  }
+
+  // Keep only the passive network reachable from the meter's first terminal.
+  const passiveAdj = new Map<number, Set<number>>();
+  const linkPassive = (a: number, b: number) => {
+    if (!passiveAdj.has(a)) passiveAdj.set(a, new Set());
+    if (!passiveAdj.has(b)) passiveAdj.set(b, new Set());
+    passiveAdj.get(a)!.add(b);
+    passiveAdj.get(b)!.add(a);
+  };
+  remap.forEach((s) => {
+    const root = sub.find(s);
+    if (!passiveAdj.has(root)) passiveAdj.set(root, new Set());
+  });
+  for (const edge of resistorEdges) {
+    if (edge.a !== edge.b) linkPassive(edge.a, edge.b);
+  }
+
+  const rootA = sub.find(subA2);
+  const rootB = sub.find(subB2);
+  const reachable = new Set<number>();
+  const q = [rootA];
+  while (q.length) {
+    const n = q.shift()!;
+    if (reachable.has(n)) continue;
+    reachable.add(n);
+    passiveAdj.get(n)?.forEach((next) => {
+      if (!reachable.has(next)) q.push(next);
+    });
+  }
+  if (!reachable.has(rootB)) return null;
+
   // Build node index excluding ground = subB2.
-  const subNodes = new Set<number>();
-  remap.forEach((s) => subNodes.add(sub.find(s)));
-  subNodes.delete(sub.find(subB2));
+  const subNodes = new Set(reachable);
+  subNodes.delete(rootB);
   const idxMap = new Map<number, number>();
   let i = 0;
   for (const n of subNodes) idxMap.set(n, i++);
@@ -579,14 +610,10 @@ function computeEquivR(
   if (N === 0) return null;
   const A: number[][] = Array.from({ length: N }, () => new Array(N).fill(0));
   const bv: number[] = new Array(N).fill(0);
-  for (const ce of eps) {
-    if (kindOf(ce.c) !== "resistor") continue;
-    const a0 = uf.find(ce.nodes[0]); const b0 = uf.find(ce.nodes[1]);
-    if (!allNodes.has(a0) || !allNodes.has(b0)) continue;
-    const r = num(ce.c.resistance);
-    if (r == null || r <= 0) continue;
-    const g = 1 / r;
-    const a = sub.find(subOf(a0)); const b = sub.find(subOf(b0));
+  for (const edge of resistorEdges) {
+    if (!reachable.has(edge.a) || !reachable.has(edge.b)) continue;
+    const g = 1 / edge.r;
+    const a = edge.a; const b = edge.b;
     if (a === b) continue;
     const ia = idxMap.get(a); const ib = idxMap.get(b);
     if (ia != null) A[ia][ia] += g;
@@ -594,7 +621,7 @@ function computeEquivR(
     if (ia != null && ib != null) { A[ia][ib] -= g; A[ib][ia] -= g; }
   }
   // Inject +1A at subA2's representative
-  const inj = idxMap.get(sub.find(subA2));
+  const inj = idxMap.get(rootA);
   if (inj == null) return null;
   bv[inj] = 1;
   const x = solveLinear(A, bv);
