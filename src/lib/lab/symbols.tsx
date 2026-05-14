@@ -151,34 +151,42 @@ type GateKind = "and" | "or" | "not" | "xor" | "nand" | "nor" | "buffer" | "xnor
 function gateSymbol(kind: GateKind, stroke: string) {
   // Body geometry: x ∈ [-22, 22], outer terminal stubs reach to ±40.
   const inverted = kind === "nand" || kind === "nor" || kind === "not" || kind === "xnor";
-  const bodyEnd = 22;
+  const bodyStart = -34;
+  const bodyEnd = 34;
   const tipX = inverted ? bodyEnd - 4 : bodyEnd; // dot sits past the body
   const dot = inverted ? (
-    <circle cx={bodyEnd + 2} cy={0} r={3.2} fill="none" stroke={stroke} strokeWidth={2} />
+    <circle cx={bodyEnd + 3} cy={0} r={4} fill="none" stroke={stroke} strokeWidth={2.4} />
   ) : null;
   // Right-side stub from end of body (or after dot) to +40
-  const rightStubStart = inverted ? bodyEnd + 5 : bodyEnd;
+  const rightStubStart = inverted ? bodyEnd + 8 : bodyEnd;
   const rightStub = (
-    <line x1={rightStubStart} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
+    <line x1={rightStubStart} y1={0} x2={60} y2={0} stroke={stroke} strokeWidth={3} />
   );
 
   if (kind === "not" || kind === "buffer") {
     // Triangle (single input): -22..18 body, tip at 18 (or 18+dot for NOT)
-    const tip = inverted ? 14 : 18;
+    const tip = inverted ? 28 : 34;
     return (
       <g>
-        <line x1={-40} y1={0} x2={-22} y2={0} stroke={stroke} strokeWidth={3} />
+        <line x1={-60} y1={0} x2={bodyStart} y2={0} stroke={stroke} strokeWidth={3} />
         <polygon
-          points={`-22,-16 -22,16 ${tip},0`}
+          points={`${bodyStart},-26 ${bodyStart},26 ${tip},0`}
           fill="none"
           stroke={stroke}
           strokeWidth={3}
           strokeLinejoin="round"
         />
         {inverted && (
-          <circle cx={tip + 4} cy={0} r={3.2} fill="none" stroke={stroke} strokeWidth={2} />
+          <circle cx={tip + 6} cy={0} r={4} fill="none" stroke={stroke} strokeWidth={2.4} />
         )}
-        <line x1={inverted ? tip + 7 : tip} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
+        <line
+          x1={inverted ? tip + 10 : tip}
+          y1={0}
+          x2={60}
+          y2={0}
+          stroke={stroke}
+          strokeWidth={3}
+        />
       </g>
     );
   }
@@ -186,19 +194,19 @@ function gateSymbol(kind: GateKind, stroke: string) {
   // Two-input style. Inputs at left, output at right tip.
   const inputStubsTop = (
     <>
-      <line x1={-40} y1={-10} x2={-22} y2={-10} stroke={stroke} strokeWidth={3} />
-      <line x1={-40} y1={10} x2={-22} y2={10} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={-20} x2={bodyStart} y2={-20} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={20} x2={bodyStart} y2={20} stroke={stroke} strokeWidth={3} />
     </>
   );
 
   if (kind === "and" || kind === "nand") {
     // D-shape: rectangle from -22..0, semicircle from 0..tipX
-    const r = 16;
+    const r = 26;
     return (
       <g>
         {inputStubsTop}
         <path
-          d={`M -22 -16 L 0 -16 A ${r} ${r} 0 0 1 0 16 L -22 16 Z`}
+          d={`M ${bodyStart} -26 L 8 -26 A ${r} ${r} 0 0 1 8 26 L ${bodyStart} 26 Z`}
           fill="none"
           stroke={stroke}
           strokeWidth={3}
@@ -212,12 +220,12 @@ function gateSymbol(kind: GateKind, stroke: string) {
 
   if (kind === "or" || kind === "nor" || kind === "xor" || kind === "xnor") {
     // OR-shape: curved back, two side curves meeting at tip on right.
-    const back = "M -22 -16 Q -10 0 -22 16";
-    const top = `M -22 -16 Q 6 -16 ${tipX} 0`;
-    const bot = `M -22 16 Q 6 16 ${tipX} 0`;
+    const back = `M ${bodyStart} -26 Q -14 0 ${bodyStart} 26`;
+    const top = `M ${bodyStart} -26 Q 12 -26 ${tipX} 0`;
+    const bot = `M ${bodyStart} 26 Q 12 26 ${tipX} 0`;
     const xorBack =
       kind === "xor" || kind === "xnor" ? (
-        <path d="M -28 -16 Q -16 0 -28 16" fill="none" stroke={stroke} strokeWidth={3} />
+        <path d="M -42 -26 Q -22 0 -42 26" fill="none" stroke={stroke} strokeWidth={3} />
       ) : null;
     return (
       <g>
@@ -267,6 +275,13 @@ export function PaletteSymbol({ type }: { type: ComponentType }) {
         <g transform="translate(0, 6)">
           <ComponentSymbol type={type} />
         </g>
+      </svg>
+    );
+  }
+  if (type.startsWith("gate_")) {
+    return (
+      <svg viewBox="-66 -32 132 64" width={90} height={44}>
+        <ComponentSymbol type={type} />
       </svg>
     );
   }

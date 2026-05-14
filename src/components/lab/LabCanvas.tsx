@@ -63,6 +63,11 @@ function pickComponent(
 ): PlacedComponent | null {
   for (let i = components.length - 1; i >= 0; i--) {
     const c = components[i];
+    if (isConnector(c.type) || isLogicGate(c.type)) {
+      const b = componentBounds(c, 10);
+      if (wx >= b.x && wx <= b.x + b.width && wy >= b.y && wy <= b.y + b.height) return c;
+      continue;
+    }
     const dx = wx - c.x;
     const dy = wy - c.y;
     const rad = (-c.rotation * Math.PI) / 180;
@@ -86,6 +91,13 @@ function componentBounds(c: PlacedComponent, pad = 6) {
   const minY = Math.min(...pts.map((p) => p.y)) - pad;
   const maxY = Math.max(...pts.map((p) => p.y)) + pad;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function displayComponentName(c: PlacedComponent) {
+  if (c.type === "wire_plus" && c.name.startsWith("node")) {
+    return c.name.replace(/^node/, "joint+");
+  }
+  return c.name;
 }
 
 export function LabCanvas({
@@ -468,18 +480,18 @@ export function LabCanvas({
                 {settings.showNames && (
                   <text
                     x={c.x}
-                    y={c.y + 30}
+                    y={bounds.y + bounds.height + 14}
                     textAnchor="middle"
                     fontSize={10}
                     fill="var(--muted-foreground)"
                   >
-                    {c.name}
+                    {displayComponentName(c)}
                   </text>
                 )}
                 {isMeter(c.type) && (
                   <text
                     x={c.x}
-                    y={c.y - (sc?.measurementClosed ? 42 : 28)}
+                    y={c.y - (sc?.measurementClosed || sc?.measurementPowered ? 42 : 28)}
                     textAnchor="middle"
                     fontSize={12}
                     fontWeight={600}
@@ -488,7 +500,7 @@ export function LabCanvas({
                     {meterReading(c)}
                   </text>
                 )}
-                {sc?.measurementClosed &&
+                {sc?.measurementPowered &&
                   (c.type === "ohmmeter" || c.meterMode === "resistance") && (
                     <text
                       x={c.x}
@@ -496,9 +508,9 @@ export function LabCanvas({
                       textAnchor="middle"
                       fontSize={11}
                       fontWeight={700}
-                      fill="var(--primary)"
+                      fill="var(--destructive)"
                     >
-                      המעגל סגור
+                      המעגל בעל ספק אחר
                     </text>
                   )}
               </g>
@@ -515,7 +527,8 @@ export function LabCanvas({
                   : w.reason === "switch_open"
                     ? "מפסק פתוח"
                     : "מעגל פתוח";
-            const wid = label.length * 8 + 22;
+            const displayLabel = w.reason === "missing_consumer" ? "אין שום צרכן" : label;
+            const wid = displayLabel.length * 8 + 22;
             return (
               <g key={`ow${i}`}>
                 <rect
@@ -535,7 +548,7 @@ export function LabCanvas({
                   fontWeight={700}
                   fill="var(--destructive-foreground)"
                 >
-                  {label}
+                  {displayLabel}
                 </text>
               </g>
             );

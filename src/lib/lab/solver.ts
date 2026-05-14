@@ -26,6 +26,7 @@ export interface SolvedComponent {
   openCircuit: boolean;
   flowDirection: 0 | 1 | -1;
   measurementClosed: boolean;
+  measurementPowered: boolean;
 }
 
 export interface UnknownSolution {
@@ -198,6 +199,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
       openCircuit: false,
       flowDirection: 0,
       measurementClosed: false,
+      measurementPowered: false,
     };
   }
   if (components.length === 0) return result;
@@ -274,6 +276,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
       k === "voltmeter" ||
       k === "ohmmeter" ||
       k === "multimeter" ||
+      k === "logic_gate" ||
       k === "switch_open" ||
       k === "open"
     )
@@ -309,7 +312,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     if (cc == null) continue;
     const k = kindOf(ce.c);
     if (k === "battery") compHasSource.add(cc);
-    if (k === "resistor" || k === "diode" || k === "ammeter") compHasConsumer.add(cc);
+    if (k === "resistor") compHasConsumer.add(cc);
     if (ce.c.type === "switch" && !ce.c.closed) {
       // If the switch were closed, would it bridge two nodes that otherwise
       // aren't connected? We don't know without re-running CC; cheaply mark
@@ -448,7 +451,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
       (ce.c.type === "multimeter" && ce.c.meterMode === "resistance")
     ) {
       const passive = computeEquivRWithComponents(ce, eps, uf);
-      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf) ? null : passive.resistance;
+      sc.measurementPowered = isResistanceMeasurementPowered(ce, eps, uf);
+      sc.resistance = sc.measurementPowered ? null : passive.resistance;
       if (sc.resistance != null) {
         sc.measurementClosed = true;
         for (const id of passive.componentIds) {
@@ -470,7 +474,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     const isPoweredCc = cc != null && compHasSource.has(cc);
 
     if (k === "resistor") {
-      if (!sc.inActiveLoop) continue;
+      if (!isPoweredCc) continue;
       const r = num(ce.c.resistance);
       if (r != null && r > 0) {
         sc.voltage = Math.abs(dV);
@@ -503,7 +507,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "ohmmeter") {
       const passive = computeEquivRWithComponents(ce, eps, uf);
-      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf) ? null : passive.resistance;
+      sc.measurementPowered = isResistanceMeasurementPowered(ce, eps, uf);
+      sc.resistance = sc.measurementPowered ? null : passive.resistance;
       if (sc.resistance != null) sc.measurementClosed = true;
     } else if (ce.c.type === "wire") {
       if (!sc.inActiveLoop) continue;

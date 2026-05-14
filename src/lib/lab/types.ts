@@ -86,7 +86,7 @@ export const NAME_PREFIX: Record<ComponentType, string> = {
   wire: "wire",
   wire_corner: "corner",
   wire_t: "tjoint",
-  wire_plus: "node",
+  wire_plus: "joint+",
   battery: "battery",
   resistor: "resistor",
   bulb: "bulb",
@@ -132,6 +132,7 @@ export interface Terminal {
 
 export const COMPONENT_LENGTH = 80; // distance between two terminals
 export const GRID = 20;
+export const GATE_LENGTH = 120;
 
 export function snap(v: number): number {
   return Math.round(v / GRID) * GRID;
@@ -199,16 +200,17 @@ export function allTerminalPositions(c: PlacedComponent): { x: number; y: number
     return offs.map((o) => ({ x: c.x + o.x * cos - o.y * sin, y: c.y + o.x * sin + o.y * cos }));
   }
   if (isLogicGate(c.type)) {
+    const half = GATE_LENGTH / 2;
     const gateOffs =
       gateInputCount(c.type) === 1
         ? [
-            { x: -40, y: 0 },
-            { x: 40, y: 0 },
+            { x: -half, y: 0 },
+            { x: half, y: 0 },
           ]
         : [
-            { x: -40, y: -10 },
-            { x: -40, y: 10 },
-            { x: 40, y: 0 },
+            { x: -half, y: -20 },
+            { x: -half, y: 20 },
+            { x: half, y: 0 },
           ];
     const rad = (c.rotation * Math.PI) / 180;
     const cos = Math.cos(rad),
