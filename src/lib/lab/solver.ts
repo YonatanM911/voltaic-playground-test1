@@ -25,6 +25,7 @@ export interface SolvedComponent {
   loopId: number | null;
   openCircuit: boolean;
   flowDirection: 0 | 1 | -1;
+  measurementClosed: boolean;
 }
 
 export interface UnknownSolution {
@@ -196,6 +197,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
       loopId: null,
       openCircuit: false,
       flowDirection: 0,
+      measurementClosed: false,
     };
   }
   if (components.length === 0) return result;
@@ -307,7 +309,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     if (cc == null) continue;
     const k = kindOf(ce.c);
     if (k === "battery") compHasSource.add(cc);
-    if (k === "resistor" || k === "diode") compHasConsumer.add(cc);
+    if (k === "resistor" || k === "diode" || k === "ammeter") compHasConsumer.add(cc);
     if (ce.c.type === "switch" && !ce.c.closed) {
       // If the switch were closed, would it bridge two nodes that otherwise
       // aren't connected? We don't know without re-running CC; cheaply mark
@@ -445,9 +447,18 @@ export function solve(components: PlacedComponent[]): SolveResult {
       ce.c.type === "ohmmeter" ||
       (ce.c.type === "multimeter" && ce.c.meterMode === "resistance")
     ) {
-      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf)
-        ? null
-        : computeEquivR(ce, eps, uf);
+      const passive = computeEquivRWithComponents(ce, eps, uf);
+      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf) ? null : passive.resistance;
+      if (sc.resistance != null) {
+        sc.measurementClosed = true;
+        for (const id of passive.componentIds) {
+          const measured = result.components[id];
+          measured.inActiveLoop = true;
+          measured.loopId = measured.loopId ?? nextLoop;
+        }
+        result.loopColors[nextLoop] = LOOP_COLORS[nextLoop % LOOP_COLORS.length];
+        nextLoop++;
+      }
     }
 
     if (xSol == null) continue;
@@ -491,9 +502,9 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (!isPoweredCc) continue;
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "ohmmeter") {
-      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf)
-        ? null
-        : computeEquivR(ce, eps, uf);
+      const passive = computeEquivRWithComponents(ce, eps, uf);
+      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf) ? null : passive.resistance;
+      if (sc.resistance != null) sc.measurementClosed = true;
     } else if (ce.c.type === "wire") {
       if (!sc.inActiveLoop) continue;
       sc.flowDirection = dV >= 0 ? 1 : -1;
@@ -645,6 +656,15 @@ function computeLogicGateReadings(
   hasAnalogSolution: boolean,
 ) {
   const nodeLogic = new Map<number, 0 | 1>();
+  for (const ce of eps) {
+    if (ce.c.type !== "battery") continue;
+    const v = num(ce.c.voltage);
+    if (v == null) continue;
+    const highNode = uf.find(ce.nodes[1]);
+    const lowNode = uf.find(ce.nodes[0]);
+    nodeLogic.set(highNode, v >= 0.5 ? 1 : 0);
+    nodeLogic.set(lowNode, 0);
+  }
   if (hasAnalogSolution) {
     for (const ce of eps) {
       for (const node of ce.nodes) {
@@ -658,9 +678,11 @@ function computeLogicGateReadings(
   for (let pass = 0; pass < Math.max(1, gates.length); pass++) {
     let changed = false;
     for (const gate of gates) {
+      const inputCount = gateInputCount(gate.c.type);
+      const inputNodes = gate.nodes.slice(0, inputCount);
       const output = evaluateGate(
         gate.c.type,
-        gate.nodes.map((n) => nodeLogic.get(uf.find(n)) ?? 0),
+        inputNodes.map((n) => nodeLogic.get(uf.find(n)) ?? 0),
       );
       const outputNode = uf.find(gate.nodes[gate.nodes.length - 1]);
       if (nodeLogic.get(outputNode) !== output) {
@@ -712,6 +734,14 @@ function computeEquivR(
   eps: { c: PlacedComponent; nodes: number[] }[],
   uf: UF,
 ): number | null {
+  return computeEquivRWithComponents(meter, eps, uf).resistance;
+}
+
+function computeEquivRWithComponents(
+  meter: { c: PlacedComponent; nodes: number[] },
+  eps: { c: PlacedComponent; nodes: number[] }[],
+  uf: UF,
+): { resistance: number | null; componentIds: string[] } {
   const sub = new UF();
   const remap = new Map<number, number>();
 
@@ -747,9 +777,9 @@ function computeEquivR(
   const subB = uf.find(meter.nodes[1]);
   const subA2 = subOf(subA);
   const subB2 = subOf(subB);
-  if (sub.find(subA2) === sub.find(subB2)) return 0;
+  if (sub.find(subA2) === sub.find(subB2)) return { resistance: 0, componentIds: [meter.c.id] };
 
-  const resistorEdges: { a: number; b: number; r: number }[] = [];
+  const resistorEdges: { a: number; b: number; r: number; id: string }[] = [];
   for (const ce of eps) {
     if (kindOf(ce.c) !== "resistor") continue;
     const r = num(ce.c.resistance);
@@ -758,6 +788,7 @@ function computeEquivR(
       a: sub.find(subOf(ce.nodes[0])),
       b: sub.find(subOf(ce.nodes[1])),
       r,
+      id: ce.c.id,
     });
   }
 
@@ -789,7 +820,7 @@ function computeEquivR(
       if (!reachable.has(next)) q.push(next);
     });
   }
-  if (!reachable.has(rootB)) return null;
+  if (!reachable.has(rootB)) return { resistance: null, componentIds: [] };
 
   // Build node index excluding ground = subB2.
   const subNodes = new Set(reachable);
@@ -798,7 +829,7 @@ function computeEquivR(
   let i = 0;
   for (const n of subNodes) idxMap.set(n, i++);
   const N = i;
-  if (N === 0) return null;
+  if (N === 0) return { resistance: null, componentIds: [] };
   const A: number[][] = Array.from({ length: N }, () => new Array(N).fill(0));
   const bv: number[] = new Array(N).fill(0);
   for (const edge of resistorEdges) {
@@ -818,11 +849,21 @@ function computeEquivR(
   }
   // Inject +1A at subA2's representative
   const inj = idxMap.get(rootA);
-  if (inj == null) return null;
+  if (inj == null) return { resistance: null, componentIds: [] };
   bv[inj] = 1;
   const x = solveLinear(A, bv);
-  if (!x) return null;
+  if (!x) return { resistance: null, componentIds: [] };
   const V = x[inj];
-  if (!Number.isFinite(V)) return null;
-  return Math.max(0, V);
+  if (!Number.isFinite(V)) return { resistance: null, componentIds: [] };
+  const componentIds = new Set<string>([meter.c.id]);
+  for (const edge of resistorEdges) {
+    if (reachable.has(edge.a) && reachable.has(edge.b)) componentIds.add(edge.id);
+  }
+  for (const ce of eps) {
+    const k = kindOf(ce.c);
+    if (k !== "wire" && k !== "ammeter") continue;
+    const roots = ce.nodes.map((node) => sub.find(subOf(node)));
+    if (roots.some((root) => reachable.has(root))) componentIds.add(ce.c.id);
+  }
+  return { resistance: Math.max(0, V), componentIds: Array.from(componentIds) };
 }

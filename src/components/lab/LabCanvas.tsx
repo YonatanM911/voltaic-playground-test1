@@ -5,7 +5,15 @@
 // touch support; pinch zoom is implemented manually (two-finger gesture).
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { COMPONENT_LENGTH, GRID, snap, type PlacedComponent } from "@/lib/lab/types";
+import {
+  COMPONENT_LENGTH,
+  GRID,
+  allTerminalPositions,
+  isConnector,
+  isLogicGate,
+  snap,
+  type PlacedComponent,
+} from "@/lib/lab/types";
 import { PlacedSymbol } from "@/lib/lab/symbols";
 import type { SolveResult } from "@/lib/lab/solver";
 import { Button } from "@/components/ui/button";
@@ -63,6 +71,21 @@ function pickComponent(
     if (Math.abs(lx) <= COMPONENT_LENGTH / 2 && Math.abs(ly) <= 22) return c;
   }
   return null;
+}
+
+function componentBounds(c: PlacedComponent, pad = 6) {
+  const pts =
+    isConnector(c.type) || isLogicGate(c.type)
+      ? allTerminalPositions(c)
+      : [
+          { x: c.x - COMPONENT_LENGTH / 2, y: c.y - 20 },
+          { x: c.x + COMPONENT_LENGTH / 2, y: c.y + 20 },
+        ];
+  const minX = Math.min(...pts.map((p) => p.x)) - pad;
+  const maxX = Math.max(...pts.map((p) => p.x)) + pad;
+  const minY = Math.min(...pts.map((p) => p.y)) - pad;
+  const maxY = Math.max(...pts.map((p) => p.y)) + pad;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 export function LabCanvas({
@@ -372,9 +395,10 @@ export function LabCanvas({
       maxX = -Infinity;
     components.forEach((c) => {
       if (!selectedIds.has(c.id)) return;
-      minX = Math.min(minX, c.x - COMPONENT_LENGTH / 2);
-      minY = Math.min(minY, c.y - 24);
-      maxX = Math.max(maxX, c.x + COMPONENT_LENGTH / 2);
+      const b = componentBounds(c);
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
     });
     if (Number.isFinite(minX)) {
       actionBar = {
@@ -410,35 +434,34 @@ export function LabCanvas({
             const color = isHit ? "oklch(0.85 0.22 60)" : baseColor;
             const lit = c.type === "bulb" && sc?.inActiveLoop && (sc.current ?? 0) !== 0;
             const selected = selectedIds.has(c.id);
+            const bounds = componentBounds(c);
             return (
               <g key={c.id}>
                 {selected && (
                   <rect
-                    x={c.x - COMPONENT_LENGTH / 2 - 4}
-                    y={c.y - 24}
-                    width={COMPONENT_LENGTH + 8}
-                    height={48}
+                    x={bounds.x}
+                    y={bounds.y}
+                    width={bounds.width}
+                    height={bounds.height}
                     fill="var(--primary)"
                     fillOpacity={0.08}
                     stroke="var(--primary)"
                     strokeWidth={1.2}
                     strokeDasharray="4 3"
                     rx={4}
-                    transform={`rotate(${c.rotation} ${c.x} ${c.y})`}
                   />
                 )}
                 {isHit && !selected && (
                   <rect
-                    x={c.x - COMPONENT_LENGTH / 2 - 6}
-                    y={c.y - 26}
-                    width={COMPONENT_LENGTH + 12}
-                    height={52}
+                    x={bounds.x}
+                    y={bounds.y}
+                    width={bounds.width}
+                    height={bounds.height}
                     fill="oklch(0.85 0.22 60)"
                     fillOpacity={0.12}
                     stroke="oklch(0.85 0.22 60)"
                     strokeWidth={1.5}
                     rx={6}
-                    transform={`rotate(${c.rotation} ${c.x} ${c.y})`}
                   />
                 )}
                 <PlacedSymbol c={c} color={color} bulbLit={lit} />
@@ -456,7 +479,7 @@ export function LabCanvas({
                 {isMeter(c.type) && (
                   <text
                     x={c.x}
-                    y={c.y - 28}
+                    y={c.y - (sc?.measurementClosed ? 42 : 28)}
                     textAnchor="middle"
                     fontSize={12}
                     fontWeight={600}
@@ -465,6 +488,19 @@ export function LabCanvas({
                     {meterReading(c)}
                   </text>
                 )}
+                {sc?.measurementClosed &&
+                  (c.type === "ohmmeter" || c.meterMode === "resistance") && (
+                    <text
+                      x={c.x}
+                      y={c.y - 24}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fontWeight={700}
+                      fill="var(--primary)"
+                    >
+                      המעגל סגור
+                    </text>
+                  )}
               </g>
             );
           })}

@@ -53,8 +53,12 @@ export function ComponentSymbol({ type, closed, bulbLit, color }: Props) {
           <line x1={6} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
           <line x1={-6} y1={-14} x2={-6} y2={14} stroke={stroke} strokeWidth={3} />
           <line x1={6} y1={-8} x2={6} y2={8} stroke={stroke} strokeWidth={5} />
-          <text x={-14} y={-18} textAnchor="middle" fontSize={14} fontWeight={700} fill={stroke}>−</text>
-          <text x={14} y={-18} textAnchor="middle" fontSize={14} fontWeight={700} fill={stroke}>+</text>
+          <text x={-14} y={-18} textAnchor="middle" fontSize={14} fontWeight={700} fill={stroke}>
+            −
+          </text>
+          <text x={14} y={-18} textAnchor="middle" fontSize={14} fontWeight={700} fill={stroke}>
+            +
+          </text>
         </g>
       );
     case "resistor":
@@ -107,12 +111,7 @@ export function ComponentSymbol({ type, closed, bulbLit, color }: Props) {
       return (
         <g>
           <line x1={-40} y1={0} x2={-10} y2={0} stroke={stroke} strokeWidth={3} />
-          <polygon
-            points="-10,-10 -10,10 10,0"
-            fill={stroke}
-            stroke={stroke}
-            strokeWidth={2}
-          />
+          <polygon points="-10,-10 -10,10 10,0" fill={stroke} stroke={stroke} strokeWidth={2} />
           <line x1={10} y1={-10} x2={10} y2={10} stroke={stroke} strokeWidth={3} />
           <line x1={10} y1={0} x2={40} y2={0} stroke={stroke} strokeWidth={3} />
         </g>
@@ -189,8 +188,6 @@ function gateSymbol(kind: GateKind, stroke: string) {
     <>
       <line x1={-40} y1={-10} x2={-22} y2={-10} stroke={stroke} strokeWidth={3} />
       <line x1={-40} y1={10} x2={-22} y2={10} stroke={stroke} strokeWidth={3} />
-      {/* For circuit continuity: tie both inputs into the single left terminal at (-40,0) */}
-      <line x1={-40} y1={-10} x2={-40} y2={10} stroke={stroke} strokeWidth={3} />
     </>
   );
 
@@ -218,9 +215,10 @@ function gateSymbol(kind: GateKind, stroke: string) {
     const back = "M -22 -16 Q -10 0 -22 16";
     const top = `M -22 -16 Q 6 -16 ${tipX} 0`;
     const bot = `M -22 16 Q 6 16 ${tipX} 0`;
-    const xorBack = (kind === "xor" || kind === "xnor") ? (
-      <path d="M -28 -16 Q -16 0 -28 16" fill="none" stroke={stroke} strokeWidth={3} />
-    ) : null;
+    const xorBack =
+      kind === "xor" || kind === "xnor" ? (
+        <path d="M -28 -16 Q -16 0 -28 16" fill="none" stroke={stroke} strokeWidth={3} />
+      ) : null;
     return (
       <g>
         {inputStubsTop}
@@ -291,12 +289,7 @@ export function PlacedSymbol({
 }) {
   return (
     <g transform={`translate(${c.x}, ${c.y}) rotate(${c.rotation})`}>
-      <ComponentSymbol
-        type={c.type}
-        color={color}
-        closed={c.closed}
-        bulbLit={bulbLit}
-      />
+      <ComponentSymbol type={c.type} color={color} closed={c.closed} bulbLit={bulbLit} />
     </g>
   );
 }
