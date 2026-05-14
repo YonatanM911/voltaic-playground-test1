@@ -18,8 +18,14 @@ import { solve } from "@/lib/lab/solver";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
 import { useAppSettings } from "@/lib/lab/settingsStore";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/lab")({
@@ -42,6 +48,7 @@ function defaultsFor(type: ComponentType): Partial<PlacedComponent> {
     current: type === "battery" ? 1 : null,
     resistance: caps.resistance ? 100 : null,
     closed: type === "switch" ? true : undefined,
+    meterMode: type === "multimeter" ? "voltage" : undefined,
   };
 }
 
@@ -63,12 +70,16 @@ function LabPage() {
   const [settings] = useAppSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { applyTheme(getInitialTheme()); }, []);
+  useEffect(() => {
+    applyTheme(getInitialTheme());
+  }, []);
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem("voltica-session-structures");
       if (raw) setSavedStructures(JSON.parse(raw));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // --- Lab state persistence (survives navigation to /settings or /guide) ---
@@ -78,22 +89,26 @@ function LabPage() {
     try {
       const raw = window.sessionStorage.getItem("voltica-lab-state");
       if (raw) {
-        const parsed = JSON.parse(raw) as { components?: PlacedComponent[]; view?: { x: number; y: number; zoom: number } };
+        const parsed = JSON.parse(raw) as {
+          components?: PlacedComponent[];
+          view?: { x: number; y: number; zoom: number };
+        };
         if (parsed.components) setComponents(parsed.components);
         if (parsed.view) setView(parsed.view);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     restoredRef.current = true;
   }, []);
   // Persist on change (after first restore).
   useEffect(() => {
     if (!restoredRef.current) return;
     try {
-      window.sessionStorage.setItem(
-        "voltica-lab-state",
-        JSON.stringify({ components, view })
-      );
-    } catch { /* ignore */ }
+      window.sessionStorage.setItem("voltica-lab-state", JSON.stringify({ components, view }));
+    } catch {
+      /* ignore */
+    }
   }, [components, view]);
 
   const solved = useMemo(() => solve(components), [components]);
@@ -105,7 +120,11 @@ function LabPage() {
   }, [search, components]);
 
   const handleDrop = useCallback(
-    (type: ComponentType, rotation: PlacedComponent["rotation"], world: { x: number; y: number }) => {
+    (
+      type: ComponentType,
+      rotation: PlacedComponent["rotation"],
+      world: { x: number; y: number },
+    ) => {
       const id = newId();
       setComponents((prev) => {
         const c: PlacedComponent = {
@@ -124,31 +143,46 @@ function LabPage() {
       });
       setSelectedIds(new Set([id]));
     },
-    []
+    [],
   );
 
   // Convert client coords (from palette drop) to world coords using current view+zoom.
-  const onPaletteDrop = useCallback((p: { type: ComponentType; rotation: PlacedComponent["rotation"]; clientX: number; clientY: number }) => {
-    const r = wrapperRef.current?.getBoundingClientRect();
-    const ox = r?.left ?? 0;
-    const oy = r?.top ?? 0;
-    const wx = (p.clientX - ox - view.x) / view.zoom;
-    const wy = (p.clientY - oy - view.y) / view.zoom;
-    handleDrop(p.type, p.rotation, { x: snap(wx), y: snap(wy) });
-  }, [view, handleDrop]);
+  const onPaletteDrop = useCallback(
+    (p: {
+      type: ComponentType;
+      rotation: PlacedComponent["rotation"];
+      clientX: number;
+      clientY: number;
+    }) => {
+      const r = wrapperRef.current?.getBoundingClientRect();
+      const ox = r?.left ?? 0;
+      const oy = r?.top ?? 0;
+      const wx = (p.clientX - ox - view.x) / view.zoom;
+      const wy = (p.clientY - oy - view.y) / view.zoom;
+      handleDrop(p.type, p.rotation, { x: snap(wx), y: snap(wy) });
+    },
+    [view, handleDrop],
+  );
 
   const persistStructures = useCallback((next: SavedStructure[]) => {
     setSavedStructures(next);
-    try { window.sessionStorage.setItem("voltica-session-structures", JSON.stringify(next)); } catch { /* ignore */ }
+    try {
+      window.sessionStorage.setItem("voltica-session-structures", JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  const insertComponentFromImport = useCallback((type: ComponentType) => {
-    const r = wrapperRef.current?.getBoundingClientRect();
-    const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
-    const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
-    handleDrop(type, 0, { x: snap(wx), y: snap(wy) });
-    setImportOpen(false);
-  }, [handleDrop, view]);
+  const insertComponentFromImport = useCallback(
+    (type: ComponentType) => {
+      const r = wrapperRef.current?.getBoundingClientRect();
+      const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
+      const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
+      handleDrop(type, 0, { x: snap(wx), y: snap(wy) });
+      setImportOpen(false);
+    },
+    [handleDrop, view],
+  );
 
   const defaultSaveName = useCallback(() => {
     const used = new Set(savedStructures.map((s) => s.name));
@@ -165,7 +199,10 @@ function LabPage() {
 
   const confirmSaveStructure = useCallback(() => {
     const selected = components.filter((c) => selectedIds.has(c.id));
-    if (selected.length === 0) { setSaveNameOpen(false); return; }
+    if (selected.length === 0) {
+      setSaveNameOpen(false);
+      return;
+    }
     const name = saveNameValue.trim() || defaultSaveName();
     const next: SavedStructure[] = [
       ...savedStructures,
@@ -175,27 +212,36 @@ function LabPage() {
     setSaveNameOpen(false);
   }, [components, selectedIds, savedStructures, persistStructures, saveNameValue, defaultSaveName]);
 
-  const insertStructure = useCallback((structure: SavedStructure) => {
-    if (structure.components.length === 0) return;
-    const r = wrapperRef.current?.getBoundingClientRect();
-    const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
-    const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
-    const cx = structure.components.reduce((s, c) => s + c.x, 0) / structure.components.length;
-    const cy = structure.components.reduce((s, c) => s + c.y, 0) / structure.components.length;
-    setComponents((prev) => {
-      const created: PlacedComponent[] = [];
-      const ids: string[] = [];
-      const all = [...prev];
-      for (const c of structure.components) {
-        const id = newId();
-        ids.push(id);
-        created.push({ ...c, id, name: nextComponentName(c.type, all.concat(created)), x: snap(wx + (c.x - cx)), y: snap(wy + (c.y - cy)) });
-      }
-      queueMicrotask(() => setSelectedIds(new Set(ids)));
-      return [...prev, ...created];
-    });
-    setImportOpen(false);
-  }, [view]);
+  const insertStructure = useCallback(
+    (structure: SavedStructure) => {
+      if (structure.components.length === 0) return;
+      const r = wrapperRef.current?.getBoundingClientRect();
+      const wx = ((r?.width ?? 800) / 2 - view.x) / view.zoom;
+      const wy = ((r?.height ?? 600) / 2 - view.y) / view.zoom;
+      const cx = structure.components.reduce((s, c) => s + c.x, 0) / structure.components.length;
+      const cy = structure.components.reduce((s, c) => s + c.y, 0) / structure.components.length;
+      setComponents((prev) => {
+        const created: PlacedComponent[] = [];
+        const ids: string[] = [];
+        const all = [...prev];
+        for (const c of structure.components) {
+          const id = newId();
+          ids.push(id);
+          created.push({
+            ...c,
+            id,
+            name: nextComponentName(c.type, all.concat(created)),
+            x: snap(wx + (c.x - cx)),
+            y: snap(wy + (c.y - cy)),
+          });
+        }
+        queueMicrotask(() => setSelectedIds(new Set(ids)));
+        return [...prev, ...created];
+      });
+      setImportOpen(false);
+    },
+    [view],
+  );
 
   const handleSave = (next: PlacedComponent) => {
     setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)));
@@ -208,9 +254,12 @@ function LabPage() {
 
   const rotateSelected = useCallback(() => {
     setComponents((prev) => {
-      const ids = selectedIds.size > 0
-        ? selectedIds
-        : prev.length > 0 ? new Set([prev[prev.length - 1].id]) : new Set<string>();
+      const ids =
+        selectedIds.size > 0
+          ? selectedIds
+          : prev.length > 0
+            ? new Set([prev[prev.length - 1].id])
+            : new Set<string>();
       if (ids.size === 0) return prev;
       const order: PlacedComponent["rotation"][] = [0, 90, 180, 270];
       // Rotate the entire selected structure 90° clockwise around its centroid:
@@ -218,7 +267,7 @@ function LabPage() {
       const sel = prev.filter((c) => ids.has(c.id));
       if (sel.length === 1) {
         return prev.map((c) =>
-          ids.has(c.id) ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] } : c
+          ids.has(c.id) ? { ...c, rotation: order[(order.indexOf(c.rotation) + 1) % 4] } : c,
         );
       }
       const cx = sel.reduce((s, c) => s + c.x, 0) / sel.length;
@@ -259,7 +308,13 @@ function LabPage() {
       for (const c of clipboard) {
         const id = newId();
         ids.push(id);
-        const cn = { ...c, id, name: nextComponentName(c.type, all.concat(created)), x: c.x + GRID * 2, y: c.y + GRID * 2 };
+        const cn = {
+          ...c,
+          id,
+          name: nextComponentName(c.type, all.concat(created)),
+          x: c.x + GRID * 2,
+          y: c.y + GRID * 2,
+        };
         created.push(cn);
       }
       queueMicrotask(() => setSelectedIds(new Set(ids)));
@@ -277,7 +332,13 @@ function LabPage() {
       for (const c of prev.filter((c) => selectedIds.has(c.id))) {
         const id = newId();
         ids.push(id);
-        created.push({ ...c, id, name: nextComponentName(c.type, all.concat(created)), x: c.x + GRID * 2, y: c.y + GRID * 2 });
+        created.push({
+          ...c,
+          id,
+          name: nextComponentName(c.type, all.concat(created)),
+          x: c.x + GRID * 2,
+          y: c.y + GRID * 2,
+        });
       }
       queueMicrotask(() => setSelectedIds(new Set(ids)));
       return [...prev, ...created];
@@ -292,12 +353,18 @@ function LabPage() {
       setView({ x: r.width / 2, y: r.height / 2, zoom: 1 });
       return;
     }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     components.forEach((c) => {
-      minX = Math.min(minX, c.x - 50); maxX = Math.max(maxX, c.x + 50);
-      minY = Math.min(minY, c.y - 30); maxY = Math.max(maxY, c.y + 30);
+      minX = Math.min(minX, c.x - 50);
+      maxX = Math.max(maxX, c.x + 50);
+      minY = Math.min(minY, c.y - 30);
+      maxY = Math.max(maxY, c.y + 30);
     });
-    const w = maxX - minX, h = maxY - minY;
+    const w = maxX - minX,
+      h = maxY - minY;
     const zoom = Math.min(r.width / w, r.height / h, 1.5) * 0.9;
     setView({
       x: r.width / 2 - ((minX + maxX) / 2) * zoom,
@@ -310,7 +377,8 @@ function LabPage() {
     const wrap = wrapperRef.current;
     if (!wrap) return;
     const r = wrap.getBoundingClientRect();
-    const cx = r.width / 2, cy = r.height / 2;
+    const cx = r.width / 2,
+      cy = r.height / 2;
     const wx = (cx - view.x) / view.zoom;
     const wy = (cy - view.y) / view.zoom;
     const nz = Math.max(0.2, Math.min(4, view.zoom * factor));
@@ -321,7 +389,12 @@ function LabPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement | null)?.isContentEditable
+      )
+        return;
       const isR = e.code === "KeyR" || e.key === "r" || e.key === "R" || e.key === "ר";
       const isC = e.code === "KeyC" || e.key === "c" || e.key === "C" || e.key === "ב";
       const isV = e.code === "KeyV" || e.key === "v" || e.key === "V" || e.key === "ה";
@@ -329,23 +402,68 @@ function LabPage() {
       const isD = e.code === "KeyD" || e.key === "d" || e.key === "D" || e.key === "ג";
       const isF = e.code === "KeyF" || e.key === "f" || e.key === "F" || e.key === "כ";
       const ctrl = e.ctrlKey || e.metaKey;
-      if (isR && !ctrl) { rotateSelected(); e.preventDefault(); return; }
-      if (e.key === "Delete" || e.key === "Backspace") { if (selectedIds.size > 0) { deleteSelected(); e.preventDefault(); } return; }
-      if (ctrl && isC) { copyToClipboard(); e.preventDefault(); return; }
-      if (ctrl && isV) { pasteFromClipboard(); e.preventDefault(); return; }
-      if (ctrl && isX) { cutToClipboard(); e.preventDefault(); return; }
-      if (ctrl && isD) { copySelected(); e.preventDefault(); return; }
-      if (isF && !ctrl) { focusCamera(); e.preventDefault(); return; }
-      if (e.key === "Escape") { setSelectedIds(new Set()); setSearch(""); }
+      if (isR && !ctrl) {
+        rotateSelected();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedIds.size > 0) {
+          deleteSelected();
+          e.preventDefault();
+        }
+        return;
+      }
+      if (ctrl && isC) {
+        copyToClipboard();
+        e.preventDefault();
+        return;
+      }
+      if (ctrl && isV) {
+        pasteFromClipboard();
+        e.preventDefault();
+        return;
+      }
+      if (ctrl && isX) {
+        cutToClipboard();
+        e.preventDefault();
+        return;
+      }
+      if (ctrl && isD) {
+        copySelected();
+        e.preventDefault();
+        return;
+      }
+      if (isF && !ctrl) {
+        focusCamera();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape") {
+        setSelectedIds(new Set());
+        setSearch("");
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rotateSelected, deleteSelected, copyToClipboard, pasteFromClipboard, cutToClipboard, copySelected, focusCamera, selectedIds]);
+  }, [
+    rotateSelected,
+    deleteSelected,
+    copyToClipboard,
+    pasteFromClipboard,
+    cutToClipboard,
+    copySelected,
+    focusCamera,
+    selectedIds,
+  ]);
 
   const editing = components.find((c) => c.id === editingId) ?? null;
 
   return (
-    <div ref={wrapperRef} className="relative h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div
+      ref={wrapperRef}
+      className="relative h-screen w-screen overflow-hidden bg-background text-foreground"
+    >
       <LabCanvas
         components={components}
         setComponents={setComponents}
@@ -395,9 +513,7 @@ function LabPage() {
         solve={solved}
         onClose={() => setEditingId(null)}
         onSave={handleSave}
-        onUpdate={(next) =>
-          setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)))
-        }
+        onUpdate={(next) => setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)))}
         onDelete={handleDelete}
       />
 
@@ -409,10 +525,18 @@ function LabPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>ביטול</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              setComponents([]); setSelectedIds(new Set()); setConfirmClear(false);
-              try { window.sessionStorage.removeItem("voltica-lab-state"); } catch { /* ignore */ }
-            }}>
+            <AlertDialogAction
+              onClick={() => {
+                setComponents([]);
+                setSelectedIds(new Set());
+                setConfirmClear(false);
+                try {
+                  window.sessionStorage.removeItem("voltica-lab-state");
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
               נקה
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -423,15 +547,23 @@ function LabPage() {
         <AlertDialogContent dir="rtl">
           <AlertDialogHeader>
             <AlertDialogTitle>חזרה לדף הבית?</AlertDialogTitle>
-            <AlertDialogDescription>כל הרכיבים שעל הלוח ימחקו. הפעולה אינה הפיכה.</AlertDialogDescription>
+            <AlertDialogDescription>
+              כל הרכיבים שעל הלוח ימחקו. הפעולה אינה הפיכה.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>ביטול</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              try { window.sessionStorage.removeItem("voltica-lab-state"); } catch { /* ignore */ }
-              setConfirmHome(false);
-              navigate({ to: "/" });
-            }}>
+            <AlertDialogAction
+              onClick={() => {
+                try {
+                  window.sessionStorage.removeItem("voltica-lab-state");
+                } catch {
+                  /* ignore */
+                }
+                setConfirmHome(false);
+                navigate({ to: "/" });
+              }}
+            >
               חזור
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -449,7 +581,12 @@ function LabPage() {
             value={saveNameValue}
             onChange={(e) => setSaveNameValue(e.target.value)}
             placeholder={defaultSaveName()}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmSaveStructure(); } }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirmSaveStructure();
+              }
+            }}
             className="mt-2 h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             autoFocus
           />

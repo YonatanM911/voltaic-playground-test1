@@ -12,6 +12,8 @@ import {
   terminalPositions,
   allTerminalPositions,
   isConnector,
+  isLogicGate,
+  gateInputCount,
 } from "./types";
 
 export interface SolvedComponent {
@@ -59,24 +61,34 @@ const DIODE_DROP_DEFAULT = 0.7;
 // the user accidentally places the ammeter in parallel with another element.
 const AMMETER_R = 1e-6;
 
-const num = (v: number | string | null): number | null =>
-  typeof v === "number" ? v : null;
+const num = (v: number | string | null): number | null => (typeof v === "number" ? v : null);
 
 // ---------- Union-find ----------
 class UF {
   p: number[] = [];
   r: number[] = [];
-  add() { this.p.push(this.p.length); this.r.push(0); return this.p.length - 1; }
+  add() {
+    this.p.push(this.p.length);
+    this.r.push(0);
+    return this.p.length - 1;
+  }
   find(i: number): number {
-    while (this.p[i] !== i) { this.p[i] = this.p[this.p[i]]; i = this.p[i]; }
+    while (this.p[i] !== i) {
+      this.p[i] = this.p[this.p[i]];
+      i = this.p[i];
+    }
     return i;
   }
   union(a: number, b: number) {
-    const ra = this.find(a), rb = this.find(b);
+    const ra = this.find(a),
+      rb = this.find(b);
     if (ra === rb) return;
     if (this.r[ra] < this.r[rb]) this.p[ra] = rb;
     else if (this.r[ra] > this.r[rb]) this.p[rb] = ra;
-    else { this.p[rb] = ra; this.r[ra]++; }
+    else {
+      this.p[rb] = ra;
+      this.r[ra]++;
+    }
   }
 }
 
@@ -87,8 +99,7 @@ function solveLinear(A: number[][], b: number[]): number[] | null {
   const M = A.map((row, i) => [...row, b[i]]);
   for (let col = 0; col < n; col++) {
     let piv = col;
-    for (let r = col + 1; r < n; r++)
-      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
     if (Math.abs(M[piv][col]) < 1e-12) return null;
     [M[col], M[piv]] = [M[piv], M[col]];
     for (let r = 0; r < n; r++) {
@@ -105,46 +116,54 @@ function solveLinear(A: number[][], b: number[]): number[] | null {
 
 // ---------- Geometry ----------
 function pointOnSegment(
-  px: number, py: number, ax: number, ay: number, bx: number, by: number, tol = 2
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  tol = 2,
 ): boolean {
-  const dx = bx - ax, dy = by - ay;
+  const dx = bx - ax,
+    dy = by - ay;
   const len2 = dx * dx + dy * dy;
   if (len2 === 0) return false;
   const t = ((px - ax) * dx + (py - ay) * dy) / len2;
   if (t <= 0.05 || t >= 0.95) return false;
-  const cx = ax + t * dx, cy = ay + t * dy;
+  const cx = ax + t * dx,
+    cy = ay + t * dy;
   return (px - cx) ** 2 + (py - cy) ** 2 <= tol * tol;
 }
 
 // ---------- Component classification ----------
 type Kind =
-  | "wire"           // zero R bridge: wire / connector / closed switch / gates
-  | "ammeter"        // zero-volt voltage source (gives true branch current via MNA)
+  | "wire" // zero R bridge: wire / connector / closed switch / gates
+  | "ammeter" // zero-volt voltage source (gives true branch current via MNA)
   | "switch_open"
   | "battery"
-  | "resistor"       // resistor or bulb with finite R
+  | "resistor" // resistor or bulb with finite R
   | "diode"
   | "voltmeter"
   | "ohmmeter"
   | "multimeter"
-  | "open";          // unknown/zero-R consumer that can't be solved
-
-function isGate(t: ComponentType): boolean {
-  return t === "gate_and" || t === "gate_or" || t === "gate_not" ||
-    t === "gate_xor" || t === "gate_nand" || t === "gate_nor" ||
-    t === "gate_buffer" || t === "gate_xnor";
-}
+  | "logic_gate"
+  | "open"; // unknown/zero-R consumer that can't be solved
 
 function kindOf(c: PlacedComponent): Kind {
   const t = c.type;
-  if (t === "wire" || isConnector(t) || isGate(t)) return "wire";
+  if (t === "wire" || isConnector(t)) return "wire";
+  if (isLogicGate(t)) return "logic_gate";
   if (t === "ammeter") return "ammeter";
   if (t === "switch") return c.closed ? "wire" : "switch_open";
   if (t === "battery") return "battery";
   if (t === "diode") return "diode";
   if (t === "voltmeter") return "voltmeter";
   if (t === "ohmmeter") return "ohmmeter";
-  if (t === "multimeter") return "multimeter";
+  if (t === "multimeter") {
+    if (c.meterMode === "current") return "ammeter";
+    if (c.meterMode === "resistance") return "ohmmeter";
+    return "voltmeter";
+  }
   if (t === "resistor" || t === "bulb") {
     const r = num(c.resistance);
     if (r != null && r > 0) return "resistor";
@@ -154,7 +173,10 @@ function kindOf(c: PlacedComponent): Kind {
 }
 
 // ---------- Main solve ----------
-interface Endpoint { c: PlacedComponent; nodes: number[]; }
+interface Endpoint {
+  c: PlacedComponent;
+  nodes: number[];
+}
 
 export function solve(components: PlacedComponent[]): SolveResult {
   const result: SolveResult = {
@@ -185,16 +207,21 @@ export function solve(components: PlacedComponent[]): SolveResult {
   const nodeId = (x: number, y: number): number => {
     const k = keyOf(x, y);
     let id = nodeMap.get(k);
-    if (id == null) { id = uf.add(); nodeMap.set(k, id); }
+    if (id == null) {
+      id = uf.add();
+      nodeMap.set(k, id);
+    }
     return id;
   };
 
   const eps: Endpoint[] = [];
   for (const c of components) {
-    if (isConnector(c.type)) {
+    if (isConnector(c.type) || isLogicGate(c.type)) {
       const pts = allTerminalPositions(c);
       const ids = pts.map((p) => nodeId(p.x, p.y));
-      for (let i = 1; i < ids.length; i++) uf.union(ids[0], ids[i]);
+      if (isConnector(c.type)) {
+        for (let i = 1; i < ids.length; i++) uf.union(ids[0], ids[i]);
+      }
       eps.push({ c, nodes: ids });
     } else {
       const [t0, t1] = terminalPositions(c);
@@ -210,7 +237,9 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (ce.c.id === we.c.id) continue;
       const positions = isConnector(ce.c.type)
         ? allTerminalPositions(ce.c)
-        : terminalPositions(ce.c);
+        : isLogicGate(ce.c.type)
+          ? allTerminalPositions(ce.c)
+          : terminalPositions(ce.c);
       for (const p of positions) {
         if (pointOnSegment(p.x, p.y, wa.x, wa.y, wb.x, wb.y)) {
           uf.union(nodeId(p.x, p.y), nodeId(wa.x, wa.y));
@@ -234,12 +263,19 @@ export function solve(components: PlacedComponent[]): SolveResult {
     if (a === b) return;
     if (!adj.has(a)) adj.set(a, new Set());
     if (!adj.has(b)) adj.set(b, new Set());
-    adj.get(a)!.add(b); adj.get(b)!.add(a);
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
   };
   for (const ce of eps) {
     const k = kindOf(ce.c);
-    if (k === "voltmeter" || k === "ohmmeter" || k === "multimeter" ||
-        k === "switch_open" || k === "open") continue;
+    if (
+      k === "voltmeter" ||
+      k === "ohmmeter" ||
+      k === "multimeter" ||
+      k === "switch_open" ||
+      k === "open"
+    )
+      continue;
     const a = uf.find(ce.nodes[0]);
     for (let i = 1; i < ce.nodes.length; i++) linkAdj(a, uf.find(ce.nodes[i]));
   }
@@ -255,7 +291,9 @@ export function solve(components: PlacedComponent[]): SolveResult {
       const u = q.shift()!;
       if (compOfNode.has(u)) continue;
       compOfNode.set(u, id);
-      adj.get(u)?.forEach((v) => { if (!compOfNode.has(v)) q.push(v); });
+      adj.get(u)?.forEach((v) => {
+        if (!compOfNode.has(v)) q.push(v);
+      });
     }
   }
 
@@ -274,17 +312,26 @@ export function solve(components: PlacedComponent[]): SolveResult {
       // If the switch were closed, would it bridge two nodes that otherwise
       // aren't connected? We don't know without re-running CC; cheaply mark
       // every neighbor component with "has open switch nearby".
-      const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
-      const ca = compOfNode.get(a); const cb = compOfNode.get(b);
+      const a = uf.find(ce.nodes[0]);
+      const b = uf.find(ce.nodes[1]);
+      const ca = compOfNode.get(a);
+      const cb = compOfNode.get(b);
       if (ca != null) compHasOpenSwitch.add(ca);
       if (cb != null && cb !== ca) compHasOpenSwitch.add(cb);
     }
   }
 
   // ----- 4. MNA per active component -----
-  const groundOf = new Map<number, number>();      // ccId -> ground node
-  const nodeIdx = new Map<number, number>();       // node -> matrix row
-  const vSourceList: { ce: Endpoint; v: number; nA: number; nB: number; idx: number; cc: number }[] = [];
+  const groundOf = new Map<number, number>(); // ccId -> ground node
+  const nodeIdx = new Map<number, number>(); // node -> matrix row
+  const vSourceList: {
+    ce: Endpoint;
+    v: number;
+    nA: number;
+    nB: number;
+    idx: number;
+    cc: number;
+  }[] = [];
   const ccActiveNodes = new Map<number, Set<number>>();
 
   for (const cc of compHasSource) {
@@ -306,7 +353,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
   for (const ce of eps) {
     const k = kindOf(ce.c);
     if (k !== "battery" && k !== "diode") continue;
-    const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
+    const a = uf.find(ce.nodes[0]);
+    const b = uf.find(ce.nodes[1]);
     const cc = compOfNode.get(a);
     if (cc == null || !compHasSource.has(cc)) continue;
     let v: number;
@@ -332,21 +380,33 @@ export function solve(components: PlacedComponent[]): SolveResult {
       else if (kk === "ammeter") r = AMMETER_R;
       else continue;
       if (r == null || r <= 0) continue;
-      const a = uf.find(ce.nodes[0]); const b = uf.find(ce.nodes[1]);
+      const a = uf.find(ce.nodes[0]);
+      const b = uf.find(ce.nodes[1]);
       const cc = compOfNode.get(a);
       if (cc == null || !compHasSource.has(cc)) continue;
       const g = 1 / r;
-      const ia = nodeIdxFinal.get(a); const ib = nodeIdxFinal.get(b);
+      const ia = nodeIdxFinal.get(a);
+      const ib = nodeIdxFinal.get(b);
       if (ia != null) A[ia][ia] += g;
       if (ib != null) A[ib][ib] += g;
-      if (ia != null && ib != null) { A[ia][ib] -= g; A[ib][ia] -= g; }
+      if (ia != null && ib != null) {
+        A[ia][ib] -= g;
+        A[ib][ia] -= g;
+      }
     }
     // Voltage source stamps
     vSourceList.forEach((vs, k) => {
-      const ia = nodeIdxFinal.get(vs.nA); const ib = nodeIdxFinal.get(vs.nB);
+      const ia = nodeIdxFinal.get(vs.nA);
+      const ib = nodeIdxFinal.get(vs.nB);
       const row = nIdx + k;
-      if (ia != null) { A[ia][row] += 1; A[row][ia] += 1; }
-      if (ib != null) { A[ib][row] -= 1; A[row][ib] -= 1; }
+      if (ia != null) {
+        A[ia][row] += 1;
+        A[row][ia] += 1;
+      }
+      if (ib != null) {
+        A[ib][row] -= 1;
+        A[row][ib] -= 1;
+      }
       bv[row] = vs.v;
     });
     xSol = solveLinear(A, bv);
@@ -363,8 +423,8 @@ export function solve(components: PlacedComponent[]): SolveResult {
   const ccLoopId = new Map<number, number>();
   let nextLoop = 0;
   for (const cc of compHasSource) {
-    if (!compHasConsumer.has(cc)) continue;       // skip "missing_consumer" comps
-    if (compHasOpenSwitch.has(cc)) continue;      // skip "switch_open" comps
+    if (!compHasConsumer.has(cc)) continue; // skip "missing_consumer" comps
+    if (compHasOpenSwitch.has(cc)) continue; // skip "switch_open" comps
     ccLoopId.set(cc, nextLoop);
     result.loopColors[nextLoop] = LOOP_COLORS[nextLoop % LOOP_COLORS.length];
     nextLoop++;
@@ -381,18 +441,25 @@ export function solve(components: PlacedComponent[]): SolveResult {
       sc.loopId = ccLoopId.get(cc)!;
     }
 
-    if (ce.c.type === "ohmmeter" || ce.c.type === "multimeter") {
-      sc.resistance = computeEquivR(ce, eps, uf);
+    if (
+      ce.c.type === "ohmmeter" ||
+      (ce.c.type === "multimeter" && ce.c.meterMode === "resistance")
+    ) {
+      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf)
+        ? null
+        : computeEquivR(ce, eps, uf);
     }
 
-    if (!sc.inActiveLoop) continue;
     if (xSol == null) continue;
 
-    const Va = Vnode(a); const Vb = Vnode(b);
+    const Va = Vnode(a);
+    const Vb = Vnode(b);
     const dV = Va - Vb;
     const k = kindOf(ce.c);
+    const isPoweredCc = cc != null && compHasSource.has(cc);
 
     if (k === "resistor") {
+      if (!sc.inActiveLoop) continue;
       const r = num(ce.c.resistance);
       if (r != null && r > 0) {
         sc.voltage = Math.abs(dV);
@@ -400,46 +467,66 @@ export function solve(components: PlacedComponent[]): SolveResult {
         sc.resistance = r;
       }
     } else if (k === "battery") {
+      if (!isPoweredCc) continue;
       const current = num(ce.c.current);
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
       sc.current = current ?? (vs ? Math.abs(xSol[nIdx + vs.idx]) : null);
       sc.voltage = num(ce.c.voltage);
     } else if (k === "diode") {
+      if (!isPoweredCc) continue;
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
       if (vs) sc.current = Math.abs(xSol[nIdx + vs.idx]);
       sc.voltage = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
-    } else if (ce.c.type === "ammeter") {
+    } else if (
+      ce.c.type === "ammeter" ||
+      (ce.c.type === "multimeter" && ce.c.meterMode === "current")
+    ) {
+      if (!sc.inActiveLoop) continue;
       // Ammeter is stamped as a tiny resistor; its current = ΔV / R_tiny.
       sc.current = Math.abs(dV) / AMMETER_R;
-    } else if (ce.c.type === "voltmeter") {
+    } else if (
+      ce.c.type === "voltmeter" ||
+      (ce.c.type === "multimeter" && (ce.c.meterMode == null || ce.c.meterMode === "voltage"))
+    ) {
+      if (!isPoweredCc) continue;
       sc.voltage = Math.abs(dV);
     } else if (ce.c.type === "ohmmeter") {
-      sc.resistance = computeEquivR(ce, eps, uf);
-    } else if (ce.c.type === "multimeter") {
-      sc.voltage = Math.abs(dV);
+      sc.resistance = isResistanceMeasurementPowered(ce, eps, uf)
+        ? null
+        : computeEquivR(ce, eps, uf);
     } else if (ce.c.type === "wire") {
+      if (!sc.inActiveLoop) continue;
       sc.flowDirection = dV >= 0 ? 1 : -1;
     }
   }
+
+  computeLogicGateReadings(eps, uf, result, Vnode, xSol != null);
 
   // ----- 7. Open warnings -----
   for (const cc of compHasSource) {
     if (ccLoopId.has(cc)) continue;
     // Pick representative center: average of battery components' positions.
     const ids: string[] = [];
-    let cx = 0, cy = 0, n = 0;
+    let cx = 0,
+      cy = 0,
+      n = 0;
     for (const ce of eps) {
       const a = uf.find(ce.nodes[0]);
       if (compOfNode.get(a) !== cc) continue;
       ids.push(ce.c.id);
-      cx += ce.c.x; cy += ce.c.y; n++;
+      cx += ce.c.x;
+      cy += ce.c.y;
+      n++;
     }
     if (n === 0) continue;
     let reason: "missing_consumer" | "switch_open" = "missing_consumer";
     if (compHasOpenSwitch.has(cc)) reason = "switch_open";
     else if (!compHasConsumer.has(cc)) reason = "missing_consumer";
     result.openWarnings.push({
-      centerX: cx / n, centerY: cy / n - COMPONENT_LENGTH / 2, ids, reason,
+      centerX: cx / n,
+      centerY: cy / n - COMPONENT_LENGTH / 2,
+      ids,
+      reason,
     });
   }
   // Lone battery (not in any conducting CC, e.g. floating)
@@ -448,7 +535,10 @@ export function solve(components: PlacedComponent[]): SolveResult {
     const a = uf.find(ce.nodes[0]);
     if (compOfNode.has(a)) continue;
     result.openWarnings.push({
-      centerX: ce.c.x, centerY: ce.c.y - 36, ids: [ce.c.id], reason: "open",
+      centerX: ce.c.x,
+      centerY: ce.c.y - 36,
+      ids: [ce.c.id],
+      reason: "open",
     });
   }
   // Lone consumers (no battery anywhere → "חסר ספק")
@@ -458,7 +548,10 @@ export function solve(components: PlacedComponent[]): SolveResult {
       const t = ce.c.type;
       if (t !== "resistor" && t !== "bulb" && t !== "diode") continue;
       result.openWarnings.push({
-        centerX: ce.c.x, centerY: ce.c.y - 36, ids: [ce.c.id], reason: "missing_source",
+        centerX: ce.c.x,
+        centerY: ce.c.y - 36,
+        ids: [ce.c.id],
+        reason: "missing_source",
       });
     }
   }
@@ -478,19 +571,19 @@ function computeAmmeterCurrent(
   Vnode: (n: number) => number,
   vSources: { ce: { c: PlacedComponent }; idx: number; v: number }[],
   xSol: number[],
-  nIdx: number
+  nIdx: number,
 ): number {
   // The ammeter's terminals are merged in node-space, so we look at the
   // ORIGINAL terminal positions to identify "neighbor" components attached
   // at exactly one of the ammeter's two physical terminals.
   const [t0, t1] = terminalPositions(ammeter.c);
   const hits = (px: number, py: number) =>
-    eps.filter((e) =>
-      e.c.id !== ammeter.c.id &&
-      (isConnector(e.c.type)
-        ? allTerminalPositions(e.c)
-        : terminalPositions(e.c)
-      ).some((p) => Math.abs(p.x - px) < 1 && Math.abs(p.y - py) < 1)
+    eps.filter(
+      (e) =>
+        e.c.id !== ammeter.c.id &&
+        (isConnector(e.c.type) ? allTerminalPositions(e.c) : terminalPositions(e.c)).some(
+          (p) => Math.abs(p.x - px) < 1 && Math.abs(p.y - py) < 1,
+        ),
     );
   const candidates = [...hits(t0.x, t0.y), ...hits(t1.x, t1.y)];
   // Prefer a resistor neighbor (well-defined current).
@@ -499,7 +592,8 @@ function computeAmmeterCurrent(
     if (k === "resistor") {
       const r = num(e.c.resistance);
       if (r == null || r <= 0) continue;
-      const a = uf.find(e.nodes[0]); const b = uf.find(e.nodes[1]);
+      const a = uf.find(e.nodes[0]);
+      const b = uf.find(e.nodes[1]);
       return Math.abs((Vnode(a) - Vnode(b)) / r);
     }
   }
@@ -513,6 +607,101 @@ function computeAmmeterCurrent(
   return 0;
 }
 
+function isResistanceMeasurementPowered(
+  meter: { c: PlacedComponent; nodes: number[] },
+  eps: { c: PlacedComponent; nodes: number[] }[],
+  uf: UF,
+): boolean {
+  const start = new Set(meter.nodes.map((n) => uf.find(n)));
+  const seen = new Set<number>();
+  const q = [...start];
+
+  while (q.length) {
+    const n = q.shift()!;
+    if (seen.has(n)) continue;
+    seen.add(n);
+
+    for (const ce of eps) {
+      if (ce.c.id === meter.c.id) continue;
+      const roots = ce.nodes.map((node) => uf.find(node));
+      if (!roots.includes(n)) continue;
+      const k = kindOf(ce.c);
+      if (k === "battery" || k === "diode") return true;
+      if (k !== "wire" && k !== "ammeter" && k !== "resistor") continue;
+      for (const next of roots) {
+        if (!seen.has(next)) q.push(next);
+      }
+    }
+  }
+
+  return false;
+}
+
+function computeLogicGateReadings(
+  eps: { c: PlacedComponent; nodes: number[] }[],
+  uf: UF,
+  result: SolveResult,
+  Vnode: (n: number) => number,
+  hasAnalogSolution: boolean,
+) {
+  const nodeLogic = new Map<number, 0 | 1>();
+  if (hasAnalogSolution) {
+    for (const ce of eps) {
+      for (const node of ce.nodes) {
+        const root = uf.find(node);
+        nodeLogic.set(root, Vnode(root) >= 0.5 ? 1 : 0);
+      }
+    }
+  }
+
+  const gates = eps.filter((ce) => isLogicGate(ce.c.type));
+  for (let pass = 0; pass < Math.max(1, gates.length); pass++) {
+    let changed = false;
+    for (const gate of gates) {
+      const output = evaluateGate(
+        gate.c.type,
+        gate.nodes.map((n) => nodeLogic.get(uf.find(n)) ?? 0),
+      );
+      const outputNode = uf.find(gate.nodes[gate.nodes.length - 1]);
+      if (nodeLogic.get(outputNode) !== output) {
+        nodeLogic.set(outputNode, output);
+        changed = true;
+      }
+      const sc = result.components[gate.c.id];
+      sc.voltage = output;
+      sc.current = null;
+      sc.resistance = null;
+    }
+    if (!changed) break;
+  }
+}
+
+function evaluateGate(t: ComponentType, values: (0 | 1)[]): 0 | 1 {
+  const inputCount = gateInputCount(t);
+  const a = values[0] ?? 0;
+  const b = inputCount === 2 ? (values[1] ?? 0) : 0;
+  switch (t) {
+    case "gate_and":
+      return a === 1 && b === 1 ? 1 : 0;
+    case "gate_or":
+      return a === 1 || b === 1 ? 1 : 0;
+    case "gate_xor":
+      return a !== b ? 1 : 0;
+    case "gate_not":
+      return a === 1 ? 0 : 1;
+    case "gate_buffer":
+      return a === 1 ? 1 : 0;
+    case "gate_nand":
+      return a === 1 && b === 1 ? 0 : 1;
+    case "gate_nor":
+      return a === 1 || b === 1 ? 0 : 1;
+    case "gate_xnor":
+      return a !== b ? 0 : 1;
+    default:
+      return 0;
+  }
+}
+
 // Equivalent resistance between an ohmmeter's two terminals. Following the
 // physical procedure for measuring resistance, voltage sources are removed
 // from the circuit (treated as OPEN — i.e. ignored entirely), so a battery
@@ -521,7 +710,7 @@ function computeAmmeterCurrent(
 function computeEquivR(
   meter: { c: PlacedComponent; nodes: number[] },
   eps: { c: PlacedComponent; nodes: number[] }[],
-  uf: UF
+  uf: UF,
 ): number | null {
   const sub = new UF();
   const remap = new Map<number, number>();
@@ -554,8 +743,10 @@ function computeEquivR(
     }
   }
 
-  const subA = uf.find(meter.nodes[0]); const subB = uf.find(meter.nodes[1]);
-  const subA2 = subOf(subA); const subB2 = subOf(subB);
+  const subA = uf.find(meter.nodes[0]);
+  const subB = uf.find(meter.nodes[1]);
+  const subA2 = subOf(subA);
+  const subB2 = subOf(subB);
   if (sub.find(subA2) === sub.find(subB2)) return 0;
 
   const resistorEdges: { a: number; b: number; r: number }[] = [];
@@ -613,12 +804,17 @@ function computeEquivR(
   for (const edge of resistorEdges) {
     if (!reachable.has(edge.a) || !reachable.has(edge.b)) continue;
     const g = 1 / edge.r;
-    const a = edge.a; const b = edge.b;
+    const a = edge.a;
+    const b = edge.b;
     if (a === b) continue;
-    const ia = idxMap.get(a); const ib = idxMap.get(b);
+    const ia = idxMap.get(a);
+    const ib = idxMap.get(b);
     if (ia != null) A[ia][ia] += g;
     if (ib != null) A[ib][ib] += g;
-    if (ia != null && ib != null) { A[ia][ib] -= g; A[ib][ia] -= g; }
+    if (ia != null && ib != null) {
+      A[ia][ib] -= g;
+      A[ib][ia] -= g;
+    }
   }
   // Inject +1A at subA2's representative
   const inj = idxMap.get(rootA);

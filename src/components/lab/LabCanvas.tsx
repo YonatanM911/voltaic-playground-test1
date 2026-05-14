@@ -5,12 +5,7 @@
 // touch support; pinch zoom is implemented manually (two-finger gesture).
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import {
-  COMPONENT_LENGTH,
-  GRID,
-  snap,
-  type PlacedComponent,
-} from "@/lib/lab/types";
+import { COMPONENT_LENGTH, GRID, snap, type PlacedComponent } from "@/lib/lab/types";
 import { PlacedSymbol } from "@/lib/lab/symbols";
 import type { SolveResult } from "@/lib/lab/solver";
 import { Button } from "@/components/ui/button";
@@ -22,7 +17,7 @@ export type Tool = "select" | "pan";
 interface Props {
   components: PlacedComponent[];
   setComponents: (
-    next: PlacedComponent[] | ((prev: PlacedComponent[]) => PlacedComponent[])
+    next: PlacedComponent[] | ((prev: PlacedComponent[]) => PlacedComponent[]),
   ) => void;
   tool: Tool;
   solve: SolveResult;
@@ -56,7 +51,7 @@ interface DragState {
 function pickComponent(
   components: PlacedComponent[],
   wx: number,
-  wy: number
+  wy: number,
 ): PlacedComponent | null {
   for (let i = components.length - 1; i >= 0; i--) {
     const c = components[i];
@@ -93,7 +88,10 @@ export function LabCanvas({
   const pinchRef = useRef<{ d: number; cx: number; cy: number; zoom: number } | null>(null);
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const [marquee, setMarquee] = useState<{
-    x1: number; y1: number; x2: number; y2: number;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
   } | null>(null);
 
   useEffect(() => {
@@ -117,7 +115,7 @@ export function LabCanvas({
         y: (clientY - oy - view.y) / view.zoom,
       };
     },
-    [view]
+    [view],
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -181,7 +179,11 @@ export function LabCanvas({
         };
       }
     }
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -225,7 +227,7 @@ export function LabCanvas({
       const ddy = targetNy - d.startCompPos.y;
       const gs = d.groupStart;
       setComponents((prev) =>
-        prev.map((c) => (gs && gs[c.id] ? { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy } : c))
+        prev.map((c) => (gs && gs[c.id] ? { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy } : c)),
       );
     } else if (d.kind === "marquee" && d.startWorld) {
       const w = toWorld(e.clientX, e.clientY);
@@ -260,7 +262,11 @@ export function LabCanvas({
         setMarquee(null);
       }
     }
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   };
 
   // Wheel zoom
@@ -287,23 +293,39 @@ export function LabCanvas({
   const endY = startY + size.h / view.zoom + GRID * 40;
   for (let x = Math.floor(startX / GRID) * GRID; x < endX; x += GRID) {
     gridLines.push(
-      <line key={`vx${x}`} x1={x} y1={startY} x2={x} y2={endY}
+      <line
+        key={`vx${x}`}
+        x1={x}
+        y1={startY}
+        x2={x}
+        y2={endY}
         stroke="var(--grid)"
-        strokeWidth={(x % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom} />
+        strokeWidth={(x % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom}
+      />,
     );
   }
   for (let y = Math.floor(startY / GRID) * GRID; y < endY; y += GRID) {
     gridLines.push(
-      <line key={`hy${y}`} x1={startX} y1={y} x2={endX} y2={y}
+      <line
+        key={`hy${y}`}
+        x1={startX}
+        y1={y}
+        x2={endX}
+        y2={y}
         stroke="var(--grid)"
-        strokeWidth={(y % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom} />
+        strokeWidth={(y % (GRID * 5) === 0 ? 0.6 : 0.3) / view.zoom}
+      />,
     );
   }
 
   const cursor = tool === "pan" ? "grab" : "default";
 
   const isMeter = (t: PlacedComponent["type"]) =>
-    t === "ammeter" || t === "voltmeter" || t === "ohmmeter" || t === "multimeter";
+    t === "ammeter" ||
+    t === "voltmeter" ||
+    t === "ohmmeter" ||
+    t === "multimeter" ||
+    t.startsWith("gate_");
 
   // Format a meter reading using settings/per-component unit overrides.
   const meterReading = (c: PlacedComponent): string => {
@@ -319,27 +341,35 @@ export function LabCanvas({
       const factor = unitFactor(u, q);
       const display = v / factor;
       const abs = Math.abs(display);
-      const str = abs >= 100 ? display.toFixed(0)
-        : abs >= 10 ? display.toFixed(1)
-        : abs >= 1 ? display.toFixed(2)
-        : display.toFixed(3);
+      const str =
+        abs >= 100
+          ? display.toFixed(0)
+          : abs >= 10
+            ? display.toFixed(1)
+            : abs >= 1
+              ? display.toFixed(2)
+              : display.toFixed(3);
       return `${str} ${u}`;
     };
     if (c.type === "ammeter") return fmt(sc.current, "current");
     if (c.type === "voltmeter") return fmt(sc.voltage, "voltage");
     if (c.type === "ohmmeter") return fmt(sc.resistance, "resistance");
     if (c.type === "multimeter") {
-      return [fmt(sc.voltage, "voltage"), fmt(sc.current, "current"), fmt(sc.resistance, "resistance")]
-        .filter((part) => part !== "—")
-        .join(" / ") || "—";
+      if (c.meterMode === "current") return fmt(sc.current, "current");
+      if (c.meterMode === "resistance") return fmt(sc.resistance, "resistance");
+      return fmt(sc.voltage, "voltage");
     }
-    return "—";
+    if (c.type.startsWith("gate_"))
+      return sc.voltage == null ? "-" : `OUT ${sc.voltage >= 0.5 ? 1 : 0}`;
+    return "-";
   };
 
   // floating action bar position (in screen coords)
   let actionBar: { left: number; top: number } | null = null;
   if (selectedIds.size > 0) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity;
     components.forEach((c) => {
       if (!selectedIds.has(c.id)) return;
       minX = Math.min(minX, c.x - COMPONENT_LENGTH / 2);
@@ -374,7 +404,8 @@ export function LabCanvas({
           {gridLines}
           {components.map((c) => {
             const sc = solve.components[c.id];
-            const baseColor = sc?.inActiveLoop && sc.loopId != null ? solve.loopColors[sc.loopId] : undefined;
+            const baseColor =
+              sc?.inActiveLoop && sc.loopId != null ? solve.loopColors[sc.loopId] : undefined;
             const isHit = searchHits.has(c.id);
             const color = isHit ? "oklch(0.85 0.22 60)" : baseColor;
             const lit = c.type === "bulb" && sc?.inActiveLoop && (sc.current ?? 0) !== 0;
@@ -440,10 +471,14 @@ export function LabCanvas({
 
           {/* Open circuit warnings */}
           {solve.openWarnings.map((w, i) => {
-            const label = w.reason === "missing_consumer" ? "חסר צרכן"
-              : w.reason === "missing_source" ? "חסר ספק"
-              : w.reason === "switch_open" ? "מפסק פתוח"
-              : "מעגל פתוח";
+            const label =
+              w.reason === "missing_consumer"
+                ? "חסר צרכן"
+                : w.reason === "missing_source"
+                  ? "חסר ספק"
+                  : w.reason === "switch_open"
+                    ? "מפסק פתוח"
+                    : "מעגל פתוח";
             const wid = label.length * 8 + 22;
             return (
               <g key={`ow${i}`}>
@@ -504,9 +539,7 @@ export function LabCanvas({
           <Button size="sm" variant="ghost" onClick={onDeleteSelected} title="מחק (Delete)">
             <Trash2 className="size-4" /> מחק
           </Button>
-          <span className="px-2 text-xs text-muted-foreground">
-            {selectedIds.size} נבחרו
-          </span>
+          <span className="px-2 text-xs text-muted-foreground">{selectedIds.size} נבחרו</span>
         </div>
       )}
     </div>

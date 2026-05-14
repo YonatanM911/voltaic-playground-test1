@@ -9,7 +9,14 @@ import {
   parseField,
   type PlacedComponent,
 } from "@/lib/lab/types";
-import { BASE_UNIT, fromBase, prefixedUnits, toBase, unitFactor, type Quantity } from "@/lib/lab/units";
+import {
+  BASE_UNIT,
+  fromBase,
+  prefixedUnits,
+  toBase,
+  unitFactor,
+  type Quantity,
+} from "@/lib/lab/units";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +60,7 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   const [resistance, setResistance] = useState<FieldState>({ raw: "", error: null });
   const [voltUnit, setVoltUnit] = useState("V");
   const [currUnit, setCurrUnit] = useState("A");
+  const [meterMode, setMeterMode] = useState<NonNullable<PlacedComponent["meterMode"]>>("voltage");
   const [resUnit, setResUnit] = useState("Ω");
 
   useEffect(() => {
@@ -61,7 +69,10 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
     const vU = component.unitOverrides?.voltage ?? settings.defaultUnit.voltage;
     const cU = component.unitOverrides?.current ?? settings.defaultUnit.current;
     const rU = component.unitOverrides?.resistance ?? settings.defaultUnit.resistance;
-    setVoltUnit(vU); setCurrUnit(cU); setResUnit(rU);
+    setVoltUnit(vU);
+    setCurrUnit(cU);
+    setResUnit(rU);
+    setMeterMode(component.meterMode ?? "voltage");
     setVoltage({ raw: toRaw(component.voltage, vU, "voltage"), error: null });
     setCurrent({ raw: toRaw(component.current, cU, "current"), error: null });
     setResistance({ raw: toRaw(component.resistance, rU, "resistance"), error: null });
@@ -72,10 +83,22 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   const sc = solve.components[component.id];
 
   const validateAndCommit = () => {
-    const items: { state: FieldState; setter: (s: FieldState) => void; enabled: boolean; unit: string; q: Quantity }[] = [
+    const items: {
+      state: FieldState;
+      setter: (s: FieldState) => void;
+      enabled: boolean;
+      unit: string;
+      q: Quantity;
+    }[] = [
       { state: voltage, setter: setVoltage, enabled: caps.voltage, unit: voltUnit, q: "voltage" },
       { state: current, setter: setCurrent, enabled: caps.current, unit: currUnit, q: "current" },
-      { state: resistance, setter: setResistance, enabled: caps.resistance, unit: resUnit, q: "resistance" },
+      {
+        state: resistance,
+        setter: setResistance,
+        enabled: caps.resistance,
+        unit: resUnit,
+        q: "resistance",
+      },
     ];
     let ok = true;
     const parsed: (number | string | null)[] = [null, null, null];
@@ -88,9 +111,7 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
       } else {
         it.setter({ ...it.state, error: null });
         parsed[i] =
-          r.kind === "number" ? toBase(r.value, it.unit, it.q)
-            : r.kind === "unknown" ? null
-            : null;
+          r.kind === "number" ? toBase(r.value, it.unit, it.q) : r.kind === "unknown" ? null : null;
       }
     });
     if (!ok) return;
@@ -100,6 +121,7 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
       voltage: caps.voltage ? parsed[0] : component.voltage,
       current: caps.current ? parsed[1] : component.current,
       resistance: caps.resistance ? parsed[2] : component.resistance,
+      meterMode: component.type === "multimeter" ? meterMode : component.meterMode,
       unitOverrides: { voltage: voltUnit, current: currUnit, resistance: resUnit },
     });
   };
@@ -116,15 +138,11 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   function formatWithUnit(siValue: number | null, unit: string): string {
     if (siValue == null) return "—";
     const base = unit.slice(-1);
-    const q: Quantity =
-      base === "V" ? "voltage" : base === "A" ? "current" : "resistance";
+    const q: Quantity = base === "V" ? "voltage" : base === "A" ? "current" : "resistance";
     const v = fromBase(siValue, unit, q);
     const abs = Math.abs(v);
     const str =
-      abs >= 100 ? v.toFixed(0) :
-      abs >= 10 ? v.toFixed(1) :
-      abs >= 1 ? v.toFixed(2) :
-      v.toFixed(3);
+      abs >= 100 ? v.toFixed(0) : abs >= 10 ? v.toFixed(1) : abs >= 1 ? v.toFixed(2) : v.toFixed(3);
     return `${str} ${unit}`;
   }
 
@@ -170,6 +188,24 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
             reading={formatWithUnit(sc?.resistance ?? null, resUnit)}
             onChange={(raw) => setResistance({ raw, error: null })}
           />
+          {component.type === "multimeter" && (
+            <div className="rounded-md border border-border p-3">
+              <Label className="mb-2 block">מצב מולטימטר</Label>
+              <select
+                value={meterMode}
+                onChange={(e) => {
+                  const next = e.target.value as NonNullable<PlacedComponent["meterMode"]>;
+                  setMeterMode(next);
+                  onUpdate({ ...component, meterMode: next });
+                }}
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="voltage">מתח (V) - חיבור במקביל</option>
+                <option value="current">זרם (A) - חיבור בטור</option>
+                <option value="resistance">התנגדות (Ω) - במקביל כשהמעגל כבוי</option>
+              </select>
+            </div>
+          )}
           {component.type === "switch" && (
             <div className="flex items-center justify-between rounded-md border border-border p-3">
               <Label>מצב המפסק (סגור = מוליך)</Label>
@@ -182,12 +218,10 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
         </div>
         <DialogFooter className="flex-row-reverse gap-2 sm:justify-start">
           <Button onClick={validateAndCommit}>שמור</Button>
-          <Button variant="ghost" onClick={onClose}>ביטול</Button>
-          <Button
-            variant="destructive"
-            className="me-auto"
-            onClick={() => onDelete(component.id)}
-          >
+          <Button variant="ghost" onClick={onClose}>
+            ביטול
+          </Button>
+          <Button variant="destructive" className="me-auto" onClick={() => onDelete(component.id)}>
             <Trash2 className="size-4" /> מחק רכיב
           </Button>
         </DialogFooter>
@@ -197,7 +231,14 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
 }
 
 function FieldBox({
-  label, state, onChange, disabled, unit, q, onUnitChange, reading,
+  label,
+  state,
+  onChange,
+  disabled,
+  unit,
+  q,
+  onUnitChange,
+  reading,
 }: {
   label: string;
   state: FieldState;
@@ -212,7 +253,9 @@ function FieldBox({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <Label>{label} ({BASE_UNIT[q]})</Label>
+        <Label>
+          {label} ({BASE_UNIT[q]})
+        </Label>
         <span className="text-[11px] text-muted-foreground">{reading}</span>
       </div>
       <div className="flex gap-2 px-1">
@@ -229,7 +272,9 @@ function FieldBox({
           className="w-20 shrink-0 rounded-md border border-input bg-background px-2 pe-6 text-sm"
         >
           {units.map((u) => (
-            <option key={u} value={u}>{u}</option>
+            <option key={u} value={u}>
+              {u}
+            </option>
           ))}
         </select>
       </div>

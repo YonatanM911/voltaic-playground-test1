@@ -115,16 +115,17 @@ export interface PlacedComponent {
   x: number;
   y: number;
   rotation: 0 | 90 | 180 | 270;
-  voltage: number | string | null;   // SI value, or unknown name, or null
+  voltage: number | string | null; // SI value, or unknown name, or null
   current: number | string | null;
   resistance: number | string | null;
-  closed?: boolean;                  // for switch
+  closed?: boolean; // for switch
+  meterMode?: "voltage" | "current" | "resistance";
   unitOverrides?: Partial<Record<Quantity, string>>;
 }
 
 export interface Terminal {
   componentId: string;
-  index: 0 | 1;
+  index: number;
   x: number;
   y: number;
 }
@@ -151,24 +152,77 @@ export function terminalPositions(c: PlacedComponent): [Terminal, Terminal] {
 // Multi-terminal connectors (junction nodes). All terminals share a node
 // (no resistance). Used for L corners, T-joints and + crossings.
 const CONNECTOR_OFFSETS: Partial<Record<ComponentType, { x: number; y: number }[]>> = {
-  wire_corner: [{ x: -40, y: 0 }, { x: 0, y: -40 }],
-  wire_t: [{ x: -40, y: 0 }, { x: 40, y: 0 }, { x: 0, y: -40 }],
-  wire_plus: [{ x: -40, y: 0 }, { x: 40, y: 0 }, { x: 0, y: -40 }, { x: 0, y: 40 }],
+  wire_corner: [
+    { x: -40, y: 0 },
+    { x: 0, y: -40 },
+  ],
+  wire_t: [
+    { x: -40, y: 0 },
+    { x: 40, y: 0 },
+    { x: 0, y: -40 },
+  ],
+  wire_plus: [
+    { x: -40, y: 0 },
+    { x: 40, y: 0 },
+    { x: 0, y: -40 },
+    { x: 0, y: 40 },
+  ],
 };
 
 export function isConnector(t: ComponentType): boolean {
   return t === "wire_corner" || t === "wire_t" || t === "wire_plus";
 }
 
+export function isLogicGate(t: ComponentType): boolean {
+  return (
+    t === "gate_and" ||
+    t === "gate_or" ||
+    t === "gate_not" ||
+    t === "gate_xor" ||
+    t === "gate_nand" ||
+    t === "gate_nor" ||
+    t === "gate_buffer" ||
+    t === "gate_xnor"
+  );
+}
+
+export function gateInputCount(t: ComponentType): 1 | 2 {
+  return t === "gate_not" || t === "gate_buffer" ? 1 : 2;
+}
+
 export function allTerminalPositions(c: PlacedComponent): { x: number; y: number }[] {
   const offs = CONNECTOR_OFFSETS[c.type];
   if (offs) {
     const rad = (c.rotation * Math.PI) / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const cos = Math.cos(rad),
+      sin = Math.sin(rad);
     return offs.map((o) => ({ x: c.x + o.x * cos - o.y * sin, y: c.y + o.x * sin + o.y * cos }));
   }
+  if (isLogicGate(c.type)) {
+    const gateOffs =
+      gateInputCount(c.type) === 1
+        ? [
+            { x: -40, y: 0 },
+            { x: 40, y: 0 },
+          ]
+        : [
+            { x: -40, y: -10 },
+            { x: -40, y: 10 },
+            { x: 40, y: 0 },
+          ];
+    const rad = (c.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad),
+      sin = Math.sin(rad);
+    return gateOffs.map((o) => ({
+      x: c.x + o.x * cos - o.y * sin,
+      y: c.y + o.x * sin + o.y * cos,
+    }));
+  }
   const [t0, t1] = terminalPositions(c);
-  return [{ x: t0.x, y: t0.y }, { x: t1.x, y: t1.y }];
+  return [
+    { x: t0.x, y: t0.y },
+    { x: t1.x, y: t1.y },
+  ];
 }
 
 export function isValidUnknownName(name: string): boolean {
@@ -199,10 +253,7 @@ export function parseField(raw: string): FieldParse {
 }
 
 // pick a unique creative name for a new component
-export function nextComponentName(
-  type: ComponentType,
-  existing: PlacedComponent[]
-): string {
+export function nextComponentName(type: ComponentType, existing: PlacedComponent[]): string {
   const prefix = NAME_PREFIX[type];
   let i = 1;
   const used = new Set(existing.map((c) => c.name));
