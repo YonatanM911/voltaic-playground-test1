@@ -68,7 +68,67 @@ function LabPage() {
   const [saveNameOpen, setSaveNameOpen] = useState(false);
   const [saveNameValue, setSaveNameValue] = useState("");
   const [settings] = useAppSettings();
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // --- Undo / Redo history (debounced snapshots of components) ---
+  const pastRef = useRef<PlacedComponent[][]>([]);
+  const futureRef = useRef<PlacedComponent[][]>([]);
+  const lastCommittedRef = useRef<PlacedComponent[]>(components);
+  const applyingHistoryRef = useRef(false);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, setHistoryTick] = useState(0);
+  const HISTORY_LIMIT = 100;
+
+  useEffect(() => {
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      lastCommittedRef.current = components;
+      return;
+    }
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      const prev = lastCommittedRef.current;
+      if (prev === components) return;
+      pastRef.current.push(prev);
+      if (pastRef.current.length > HISTORY_LIMIT) pastRef.current.shift();
+      futureRef.current = [];
+      lastCommittedRef.current = components;
+      setHistoryTick((t) => t + 1);
+    }, 250);
+    return () => {
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    };
+  }, [components]);
+
+  const undo = useCallback(() => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+      if (lastCommittedRef.current !== components) {
+        pastRef.current.push(lastCommittedRef.current);
+        lastCommittedRef.current = components;
+      }
+    }
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push(components);
+    applyingHistoryRef.current = true;
+    setComponents(prev);
+    setHistoryTick((t) => t + 1);
+  }, [components]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(components);
+    applyingHistoryRef.current = true;
+    setComponents(next);
+    setHistoryTick((t) => t + 1);
+  }, [components]);
+
+  const canUndo = pastRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
 
   useEffect(() => {
     applyTheme(getInitialTheme());
