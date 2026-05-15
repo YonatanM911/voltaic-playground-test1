@@ -2,7 +2,7 @@
 // Each symbol is drawn inside a 80x40 box centered at (0,0) with terminals
 // at (-40, 0) and (+40, 0). Rotation is applied at the group level by
 // PlacedSymbol so that the entire shape rotates as a rigid body.
-import { COMPONENT_LENGTH, type ComponentType, type PlacedComponent } from "./types";
+import { COMPONENT_LENGTH, GATE_LENGTH, type ComponentType, type PlacedComponent } from "./types";
 
 interface Props {
   type: ComponentType;
@@ -151,8 +151,9 @@ type GateKind = "and" | "or" | "not" | "xor" | "nand" | "nor" | "buffer" | "xnor
 function gateSymbol(kind: GateKind, stroke: string) {
   // Body geometry: x ∈ [-22, 22], outer terminal stubs reach to ±40.
   const inverted = kind === "nand" || kind === "nor" || kind === "not" || kind === "xnor";
-  const bodyStart = -34;
-  const bodyEnd = 34;
+  const half = GATE_LENGTH / 2;
+  const bodyStart = -48;
+  const bodyEnd = 54;
   const inputY = COMPONENT_LENGTH / 2;
   const bodyY = inputY + 10;
   const tipX = inverted ? bodyEnd - 4 : bodyEnd; // dot sits past the body
@@ -162,7 +163,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
   // Right-side stub from end of body (or after dot) to +40
   const rightStubStart = inverted ? bodyEnd + 8 : bodyEnd;
   const rightStub = (
-    <line x1={rightStubStart} y1={0} x2={60} y2={0} stroke={stroke} strokeWidth={3} />
+    <line x1={rightStubStart} y1={0} x2={half} y2={0} stroke={stroke} strokeWidth={3} />
   );
 
   if (kind === "not" || kind === "buffer") {
@@ -170,7 +171,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
     const tip = inverted ? 28 : 34;
     return (
       <g>
-        <line x1={-60} y1={0} x2={bodyStart} y2={0} stroke={stroke} strokeWidth={3} />
+        <line x1={-half} y1={0} x2={bodyStart} y2={0} stroke={stroke} strokeWidth={3} />
         <polygon
           points={`${bodyStart},-${bodyY} ${bodyStart},${bodyY} ${tip},0`}
           fill="none"
@@ -184,7 +185,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
         <line
           x1={inverted ? tip + 10 : tip}
           y1={0}
-          x2={60}
+          x2={half}
           y2={0}
           stroke={stroke}
           strokeWidth={3}
@@ -196,8 +197,8 @@ function gateSymbol(kind: GateKind, stroke: string) {
   // Two-input style. Inputs at left, output at right tip.
   const inputStubsTo = (x2: number) => (
     <>
-      <line x1={-60} y1={-inputY} x2={x2} y2={-inputY} stroke={stroke} strokeWidth={3} />
-      <line x1={-60} y1={inputY} x2={x2} y2={inputY} stroke={stroke} strokeWidth={3} />
+      <line x1={-half} y1={-inputY} x2={x2} y2={-inputY} stroke={stroke} strokeWidth={3} />
+      <line x1={-half} y1={inputY} x2={x2} y2={inputY} stroke={stroke} strokeWidth={3} />
     </>
   );
 
@@ -222,7 +223,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
 
   if (kind === "or" || kind === "nor" || kind === "xor" || kind === "xnor") {
     // OR-shape: curved back, two side curves meeting at tip on right.
-    const inputJoinX = -30;
+    const inputJoinX = -42;
     const back = `M ${bodyStart} -${bodyY} Q -14 0 ${bodyStart} ${bodyY}`;
     const top = `M ${bodyStart} -${bodyY} Q 12 -${bodyY} ${tipX} 0`;
     const bot = `M ${bodyStart} ${bodyY} Q 12 ${bodyY} ${tipX} 0`;
@@ -288,7 +289,7 @@ export function PaletteSymbol({ type }: { type: ComponentType }) {
   }
   if (type.startsWith("gate_")) {
     return (
-      <svg viewBox="-66 -56 132 112" width={90} height={64}>
+      <svg viewBox="-88 -56 176 112" width={110} height={70}>
         <ComponentSymbol type={type} />
       </svg>
     );

@@ -11,9 +11,6 @@ import { Plus, GripHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 
 const PALETTE_ITEMS: ComponentType[] = [
   "wire",
-  "wire_corner",
-  "wire_t",
-  "wire_plus",
   "battery",
   "resistor",
   "bulb",

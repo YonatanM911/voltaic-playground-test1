@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   COMPONENT_LENGTH,
+  COMPONENT_LABEL_HE,
+  GATE_LENGTH,
   GRID,
   allTerminalPositions,
   connectionSnapDelta,
@@ -89,11 +91,13 @@ function componentBounds(c: PlacedComponent, pad = 6) {
     const rad = (c.rotation * Math.PI) / 180;
     const cos = Math.cos(rad),
       sin = Math.sin(rad);
+    const half = GATE_LENGTH / 2;
+    const y = COMPONENT_LENGTH / 2 + 12;
     const corners = [
-      { x: -60, y: -26 },
-      { x: 60, y: -26 },
-      { x: 60, y: 26 },
-      { x: -60, y: 26 },
+      { x: -half, y: -y },
+      { x: half, y: -y },
+      { x: half, y },
+      { x: -half, y },
     ];
     pts = corners.map((o) => ({
       x: c.x + o.x * cos - o.y * sin,
@@ -117,6 +121,11 @@ function componentBounds(c: PlacedComponent, pad = 6) {
 function displayComponentName(c: PlacedComponent) {
   if (c.type === "wire_plus" && c.name.startsWith("node")) {
     return c.name.replace(/^node/, "joint+");
+  }
+  if (isLogicGate(c.type)) {
+    const label = COMPONENT_LABEL_HE[c.type];
+    const suffix = c.name.match(/\d+$/)?.[0];
+    return suffix ? `${label}${suffix}` : label;
   }
   return c.name;
 }

@@ -96,14 +96,14 @@ export const NAME_PREFIX: Record<ComponentType, string> = {
   voltmeter: "volt",
   ohmmeter: "ohm",
   multimeter: "multi",
-  gate_and: "and",
-  gate_or: "or",
-  gate_not: "not",
-  gate_xor: "xor",
-  gate_nand: "nand",
-  gate_nor: "nor",
-  gate_buffer: "buf",
-  gate_xnor: "xnor",
+  gate_and: "AND",
+  gate_or: "OR",
+  gate_not: "NOT",
+  gate_xor: "XOR",
+  gate_nand: "NAND",
+  gate_nor: "NOR",
+  gate_buffer: "BUFFER",
+  gate_xnor: "XNOR",
 };
 
 import type { Quantity } from "./units";
@@ -132,7 +132,7 @@ export interface Terminal {
 
 export const COMPONENT_LENGTH = 80; // distance between two terminals
 export const GRID = 20;
-export const GATE_LENGTH = 120;
+export const GATE_LENGTH = 160;
 export const CONNECTION_SNAP_DISTANCE = GRID * 1.5;
 
 export function snap(v: number): number {
