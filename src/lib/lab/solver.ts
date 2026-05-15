@@ -7,6 +7,7 @@
 // All quantities are SI (V, A, Ω). Display formatting lives in units.ts.
 
 import type { PlacedComponent, ComponentType } from "./types";
+import type { Quantity } from "./units";
 import {
   COMPONENT_LENGTH,
   terminalPositions,
@@ -40,12 +41,31 @@ export interface SolveResult {
   loopColors: Record<number, string>;
   unknowns: UnknownSolution[];
   errors: string[];
+  constraintErrors: ConstraintError[];
+  sourceAdjustments: SourceAdjustment[];
   openWarnings: {
     centerX: number;
     centerY: number;
     ids: string[];
     reason: "open" | "missing_consumer" | "missing_source" | "switch_open";
   }[];
+}
+
+export interface ConstraintError {
+  componentId: string;
+  quantity: Quantity;
+  message: string;
+}
+
+export interface SourceAdjustment {
+  batteryId: string;
+  voltage: number;
+}
+
+export interface ConstraintApplication {
+  components: PlacedComponent[];
+  constraintErrors: ConstraintError[];
+  sourceAdjustments: SourceAdjustment[];
 }
 
 const LOOP_COLORS = [
@@ -161,12 +181,14 @@ interface Endpoint {
   nodes: number[];
 }
 
-export function solve(components: PlacedComponent[]): SolveResult {
+function solveBase(components: PlacedComponent[]): SolveResult {
   const result: SolveResult = {
     components: {},
     loopColors: {},
     unknowns: [],
     errors: [],
+    constraintErrors: [],
+    sourceAdjustments: [],
     openWarnings: [],
   };
   for (const c of components) {
@@ -559,6 +581,175 @@ export function solve(components: PlacedComponent[]): SolveResult {
   }
 
   return result;
+}
+
+export function solve(components: PlacedComponent[]): SolveResult {
+  const result = solveBase(components);
+  const constraints = computeConstraintSolution(components, result);
+  result.constraintErrors = constraints.constraintErrors;
+  result.sourceAdjustments = constraints.sourceAdjustments;
+  return result;
+}
+
+export function applyConstraintAdjustments(components: PlacedComponent[]): ConstraintApplication {
+  const base = solveBase(components);
+  const constraints = computeConstraintSolution(components, base);
+  if (constraints.constraintErrors.length > 0 || constraints.sourceAdjustments.length === 0) {
+    return {
+      components,
+      constraintErrors: constraints.constraintErrors,
+      sourceAdjustments: constraints.sourceAdjustments,
+    };
+  }
+
+  const voltageByBattery = new Map(
+    constraints.sourceAdjustments.map((a) => [a.batteryId, a.voltage]),
+  );
+  const adjusted = components.map((c) => {
+    const voltage = voltageByBattery.get(c.id);
+    if (voltage == null) return c;
+    const resistance = num(c.resistance) ?? BATTERY_DEFAULT_R;
+    return {
+      ...c,
+      voltage,
+      current: resistance > 0 ? voltage / resistance : c.current,
+    };
+  });
+
+  return { components: adjusted, ...constraints };
+}
+
+function computeConstraintSolution(
+  components: PlacedComponent[],
+  base: SolveResult,
+): { constraintErrors: ConstraintError[]; sourceAdjustments: SourceAdjustment[] } {
+  const constraintErrors: ConstraintError[] = [];
+  const requiredVoltageByBattery = new Map<
+    string,
+    { voltage: number; owner: string; quantity: Quantity }
+  >();
+  const targets = components.flatMap((c) =>
+    (Object.entries(c.constraints ?? {}) as [Quantity, number][])
+      .filter(([, value]) => value != null)
+      .map(([quantity, value]) => ({ component: c, quantity, value })),
+  );
+
+  const addError = (componentId: string, quantity: Quantity, message: string) => {
+    constraintErrors.push({ componentId, quantity, message });
+  };
+
+  for (const target of targets) {
+    const { component, quantity, value } = target;
+    if (!Number.isFinite(value) || value < 0) {
+      addError(component.id, quantity, "Target values must be non-negative numbers.");
+      continue;
+    }
+
+    const solved = base.components[component.id];
+    if (!solved || !solved.inActiveLoop || solved.loopId == null) {
+      addError(component.id, quantity, "The circuit is not closed around this part.");
+      continue;
+    }
+
+    const batteries = components.filter(
+      (c) =>
+        c.type === "battery" &&
+        c.closed !== false &&
+        base.components[c.id]?.inActiveLoop &&
+        base.components[c.id]?.loopId === solved.loopId,
+    );
+    if (batteries.length === 0) {
+      addError(component.id, quantity, "No active battery can control this target.");
+      continue;
+    }
+    if (batteries.length > 1) {
+      addError(component.id, quantity, "Multiple batteries make this target ambiguous.");
+      continue;
+    }
+
+    const battery = batteries[0];
+    const currentReading = readingFor(base, component.id, quantity);
+    if (currentReading == null) {
+      addError(component.id, quantity, "This part has no measurable value for that field.");
+      continue;
+    }
+
+    if (quantity === "resistance") {
+      if (!nearlyEqual(currentReading, value)) {
+        addError(component.id, quantity, "Battery voltage cannot change this resistance value.");
+      }
+      continue;
+    }
+
+    const r0 = readingWithBatteryVoltage(components, battery.id, 0, component.id, quantity);
+    const r1 = readingWithBatteryVoltage(components, battery.id, 1, component.id, quantity);
+    if (r0 == null || r1 == null) {
+      addError(component.id, quantity, "This target cannot be measured in the current circuit.");
+      continue;
+    }
+
+    const slope = r1 - r0;
+    if (Math.abs(slope) <= 1e-9) {
+      if (!nearlyEqual(currentReading, value)) {
+        addError(component.id, quantity, "Changing the battery cannot satisfy this value.");
+      }
+      continue;
+    }
+
+    const requiredVoltage = (value - r0) / slope;
+    if (!Number.isFinite(requiredVoltage) || requiredVoltage < 0) {
+      addError(component.id, quantity, "This value would require an impossible source voltage.");
+      continue;
+    }
+
+    const previous = requiredVoltageByBattery.get(battery.id);
+    if (previous && !nearlyEqual(previous.voltage, requiredVoltage, 1e-4)) {
+      addError(component.id, quantity, "This target conflicts with another target.");
+      addError(previous.owner, previous.quantity, "This target conflicts with another target.");
+      continue;
+    }
+    requiredVoltageByBattery.set(battery.id, {
+      voltage: requiredVoltage,
+      owner: component.id,
+      quantity,
+    });
+  }
+
+  return {
+    constraintErrors,
+    sourceAdjustments:
+      constraintErrors.length === 0
+        ? Array.from(requiredVoltageByBattery, ([batteryId, { voltage }]) => ({
+            batteryId,
+            voltage,
+          }))
+        : [],
+  };
+}
+
+function readingFor(result: SolveResult, componentId: string, quantity: Quantity): number | null {
+  const solved = result.components[componentId];
+  if (!solved) return null;
+  return solved[quantity];
+}
+
+function readingWithBatteryVoltage(
+  components: PlacedComponent[],
+  batteryId: string,
+  voltage: number,
+  componentId: string,
+  quantity: Quantity,
+): number | null {
+  const sampled = components.map((c) => {
+    if (c.id !== batteryId) return c;
+    const resistance = num(c.resistance) ?? BATTERY_DEFAULT_R;
+    return { ...c, voltage, current: resistance > 0 ? voltage / resistance : c.current };
+  });
+  return readingFor(solveBase(sampled), componentId, quantity);
+}
+
+function nearlyEqual(a: number, b: number, tolerance = 1e-6): boolean {
+  return Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
 }
 
 // Branch-current heuristic for ammeters: ammeter is a wire (zero R) that

@@ -622,6 +622,15 @@ export function LabCanvas({
         </g>
       </svg>
 
+      {solve.openWarnings.length > 0 && (
+        <div
+          dir="rtl"
+          className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-lg"
+        >
+          המעגל לא סגור
+        </div>
+      )}
+
       {actionBar && (
         <div
           dir="rtl"

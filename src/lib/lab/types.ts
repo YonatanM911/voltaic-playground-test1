@@ -121,6 +121,7 @@ export interface PlacedComponent {
   closed?: boolean; // for switch and battery on/off state
   meterMode?: "voltage" | "current" | "resistance";
   unitOverrides?: Partial<Record<Quantity, string>>;
+  constraints?: Partial<Record<Quantity, number>>;
 }
 
 export interface Terminal {

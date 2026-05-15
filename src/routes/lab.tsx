@@ -15,7 +15,7 @@ import {
   snap,
   nextComponentName,
 } from "@/lib/lab/types";
-import { solve } from "@/lib/lab/solver";
+import { applyConstraintAdjustments, solve } from "@/lib/lab/solver";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
 import { useAppSettings } from "@/lib/lab/settingsStore";
 import {
@@ -320,9 +320,16 @@ function LabPage() {
     [view],
   );
 
-  const handleSave = (next: PlacedComponent) => {
-    setComponents((prev) => prev.map((c) => (c.id === next.id ? next : c)));
+  const handleSave = (next: PlacedComponent): string | null => {
+    const candidate = components.map((c) => (c.id === next.id ? next : c));
+    const adjusted = applyConstraintAdjustments(candidate);
+    const constraintError =
+      adjusted.constraintErrors.find((e) => e.componentId === next.id) ??
+      adjusted.constraintErrors[0];
+    if (constraintError) return constraintError.message;
+    setComponents(adjusted.components);
     setEditingId(null);
+    return null;
   };
   const handleDelete = (id: string) => {
     setComponents((prev) => prev.filter((c) => c.id !== id));
