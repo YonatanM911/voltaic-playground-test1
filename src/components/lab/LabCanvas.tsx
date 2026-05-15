@@ -81,13 +81,31 @@ function pickComponent(
 }
 
 function componentBounds(c: PlacedComponent, pad = 6) {
-  const pts =
-    isConnector(c.type) || isLogicGate(c.type)
-      ? allTerminalPositions(c)
-      : [
-          { x: c.x - COMPONENT_LENGTH / 2, y: c.y - 20 },
-          { x: c.x + COMPONENT_LENGTH / 2, y: c.y + 20 },
-        ];
+  let pts: { x: number; y: number }[];
+  if (isLogicGate(c.type)) {
+    // Use the gate body extent (±60 horizontal, ±26 vertical) rotated with the gate,
+    // not just the terminal endpoints — otherwise NOT/BUFFER hitboxes are paper-thin.
+    const rad = (c.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad),
+      sin = Math.sin(rad);
+    const corners = [
+      { x: -60, y: -26 },
+      { x: 60, y: -26 },
+      { x: 60, y: 26 },
+      { x: -60, y: 26 },
+    ];
+    pts = corners.map((o) => ({
+      x: c.x + o.x * cos - o.y * sin,
+      y: c.y + o.x * sin + o.y * cos,
+    }));
+  } else if (isConnector(c.type)) {
+    pts = allTerminalPositions(c);
+  } else {
+    pts = [
+      { x: c.x - COMPONENT_LENGTH / 2, y: c.y - 20 },
+      { x: c.x + COMPONENT_LENGTH / 2, y: c.y + 20 },
+    ];
+  }
   const minX = Math.min(...pts.map((p) => p.x)) - pad;
   const maxX = Math.max(...pts.map((p) => p.x)) + pad;
   const minY = Math.min(...pts.map((p) => p.y)) - pad;
