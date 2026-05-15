@@ -35,11 +35,13 @@ interface DropPayload {
 interface Props {
   onDrop: (p: DropPayload) => void;
   onOpenImport: () => void;
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
 }
 
 const DRAG_THRESHOLD = 8; // px before a press becomes a drag
 
-export function Palette({ onDrop, onOpenImport }: Props) {
+export function Palette({ onDrop, onOpenImport, collapsed, setCollapsed }: Props) {
   const [drag, setDrag] = useState<{
     type: ComponentType;
     rotation: PlacedComponent["rotation"];
