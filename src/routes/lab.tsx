@@ -550,12 +550,21 @@ function LabPage() {
         onZoomIn={() => zoomBy(1.25)}
         onZoomOut={() => zoomBy(1 / 1.25)}
         onFocus={focusCamera}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         search={search}
         setSearch={setSearch}
         searchCount={searchHits.size}
       />
 
-      <Palette onDrop={onPaletteDrop} onOpenImport={() => setImportOpen(true)} />
+      <Palette
+        onDrop={onPaletteDrop}
+        onOpenImport={() => setImportOpen(true)}
+        collapsed={paletteCollapsed}
+        setCollapsed={setPaletteCollapsed}
+      />
 
       <ImportDialog
         open={importOpen}
