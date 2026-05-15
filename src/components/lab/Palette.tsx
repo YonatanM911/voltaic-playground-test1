@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentType, PlacedComponent } from "@/lib/lab/types";
 import { COMPONENT_LABEL_HE } from "@/lib/lab/types";
 import { ComponentSymbol, PaletteSymbol } from "@/lib/lab/symbols";
-import { Plus, GripHorizontal } from "lucide-react";
+import { Plus, GripHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 
 const PALETTE_ITEMS: ComponentType[] = [
   "wire",
