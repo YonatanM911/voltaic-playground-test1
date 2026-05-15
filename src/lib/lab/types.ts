@@ -133,6 +133,7 @@ export interface Terminal {
 export const COMPONENT_LENGTH = 80; // distance between two terminals
 export const GRID = 20;
 export const GATE_LENGTH = 120;
+export const CONNECTION_SNAP_DISTANCE = GRID * 1.5;
 
 export function snap(v: number): number {
   return Math.round(v / GRID) * GRID;
@@ -208,8 +209,8 @@ export function allTerminalPositions(c: PlacedComponent): { x: number; y: number
             { x: half, y: 0 },
           ]
         : [
-            { x: -half, y: -20 },
-            { x: -half, y: 20 },
+            { x: -half, y: -COMPONENT_LENGTH / 2 },
+            { x: -half, y: COMPONENT_LENGTH / 2 },
             { x: half, y: 0 },
           ];
     const rad = (c.rotation * Math.PI) / 180;
@@ -225,6 +226,33 @@ export function allTerminalPositions(c: PlacedComponent): { x: number; y: number
     { x: t0.x, y: t0.y },
     { x: t1.x, y: t1.y },
   ];
+}
+
+export function connectionSnapDelta(
+  moving: PlacedComponent[],
+  stationary: PlacedComponent[],
+  maxDistance = CONNECTION_SNAP_DISTANCE,
+): { x: number; y: number } | null {
+  if (moving.length === 0 || stationary.length === 0) return null;
+  const movingIds = new Set(moving.map((c) => c.id));
+  const movingTerminals = moving.flatMap((c) => allTerminalPositions(c));
+  const stationaryTerminals = stationary
+    .filter((c) => !movingIds.has(c.id))
+    .flatMap((c) => allTerminalPositions(c));
+  let best: { x: number; y: number; d2: number } | null = null;
+  const maxD2 = maxDistance * maxDistance;
+
+  for (const movingTerminal of movingTerminals) {
+    for (const stationaryTerminal of stationaryTerminals) {
+      const dx = stationaryTerminal.x - movingTerminal.x;
+      const dy = stationaryTerminal.y - movingTerminal.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > maxD2 || (best && d2 >= best.d2)) continue;
+      best = { x: dx, y: dy, d2 };
+    }
+  }
+
+  return best ? { x: best.x, y: best.y } : null;
 }
 
 export function isValidUnknownName(name: string): boolean {

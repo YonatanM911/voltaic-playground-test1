@@ -9,6 +9,7 @@ import {
   COMPONENT_LENGTH,
   GRID,
   allTerminalPositions,
+  connectionSnapDelta,
   isConnector,
   isLogicGate,
   snap,
@@ -281,9 +282,19 @@ export function LabCanvas({
       const ddx = targetNx - d.startCompPos.x;
       const ddy = targetNy - d.startCompPos.y;
       const gs = d.groupStart;
-      setComponents((prev) =>
-        prev.map((c) => (gs && gs[c.id] ? { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy } : c)),
-      );
+      setComponents((prev) => {
+        const movedIds = new Set(Object.keys(gs ?? {}));
+        const positioned = prev.map((c) =>
+          gs && gs[c.id] ? { ...c, x: gs[c.id].x + ddx, y: gs[c.id].y + ddy } : c,
+        );
+        const moving = positioned.filter((c) => movedIds.has(c.id));
+        const stationary = positioned.filter((c) => !movedIds.has(c.id));
+        const snapDelta = connectionSnapDelta(moving, stationary);
+        if (!snapDelta) return positioned;
+        return positioned.map((c) =>
+          movedIds.has(c.id) ? { ...c, x: c.x + snapDelta.x, y: c.y + snapDelta.y } : c,
+        );
+      });
     } else if (d.kind === "marquee" && d.startWorld) {
       const w = toWorld(e.clientX, e.clientY);
       d.curWorld = w;

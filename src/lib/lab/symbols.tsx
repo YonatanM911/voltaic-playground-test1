@@ -2,7 +2,7 @@
 // Each symbol is drawn inside a 80x40 box centered at (0,0) with terminals
 // at (-40, 0) and (+40, 0). Rotation is applied at the group level by
 // PlacedSymbol so that the entire shape rotates as a rigid body.
-import type { ComponentType, PlacedComponent } from "./types";
+import { COMPONENT_LENGTH, type ComponentType, type PlacedComponent } from "./types";
 
 interface Props {
   type: ComponentType;
@@ -153,6 +153,8 @@ function gateSymbol(kind: GateKind, stroke: string) {
   const inverted = kind === "nand" || kind === "nor" || kind === "not" || kind === "xnor";
   const bodyStart = -34;
   const bodyEnd = 34;
+  const inputY = COMPONENT_LENGTH / 2;
+  const bodyY = inputY + 10;
   const tipX = inverted ? bodyEnd - 4 : bodyEnd; // dot sits past the body
   const dot = inverted ? (
     <circle cx={bodyEnd + 3} cy={0} r={4} fill="none" stroke={stroke} strokeWidth={2.4} />
@@ -170,7 +172,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
       <g>
         <line x1={-60} y1={0} x2={bodyStart} y2={0} stroke={stroke} strokeWidth={3} />
         <polygon
-          points={`${bodyStart},-26 ${bodyStart},26 ${tip},0`}
+          points={`${bodyStart},-${bodyY} ${bodyStart},${bodyY} ${tip},0`}
           fill="none"
           stroke={stroke}
           strokeWidth={3}
@@ -194,8 +196,8 @@ function gateSymbol(kind: GateKind, stroke: string) {
   // Two-input style. Inputs at left, output at right tip.
   const inputStubsTo = (x2: number) => (
     <>
-      <line x1={-60} y1={-20} x2={x2} y2={-20} stroke={stroke} strokeWidth={3} />
-      <line x1={-60} y1={20} x2={x2} y2={20} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={-inputY} x2={x2} y2={-inputY} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={inputY} x2={x2} y2={inputY} stroke={stroke} strokeWidth={3} />
     </>
   );
 
@@ -206,7 +208,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
       <g>
         {inputStubsTo(bodyStart)}
         <path
-          d={`M ${bodyStart} -26 L 8 -26 A ${r} ${r} 0 0 1 8 26 L ${bodyStart} 26 Z`}
+          d={`M ${bodyStart} -${bodyY} L 8 -${bodyY} A ${r} ${bodyY} 0 0 1 8 ${bodyY} L ${bodyStart} ${bodyY} Z`}
           fill="none"
           stroke={stroke}
           strokeWidth={3}
@@ -221,12 +223,17 @@ function gateSymbol(kind: GateKind, stroke: string) {
   if (kind === "or" || kind === "nor" || kind === "xor" || kind === "xnor") {
     // OR-shape: curved back, two side curves meeting at tip on right.
     const inputJoinX = -30;
-    const back = `M ${bodyStart} -26 Q -14 0 ${bodyStart} 26`;
-    const top = `M ${bodyStart} -26 Q 12 -26 ${tipX} 0`;
-    const bot = `M ${bodyStart} 26 Q 12 26 ${tipX} 0`;
+    const back = `M ${bodyStart} -${bodyY} Q -14 0 ${bodyStart} ${bodyY}`;
+    const top = `M ${bodyStart} -${bodyY} Q 12 -${bodyY} ${tipX} 0`;
+    const bot = `M ${bodyStart} ${bodyY} Q 12 ${bodyY} ${tipX} 0`;
     const xorBack =
       kind === "xor" || kind === "xnor" ? (
-        <path d="M -42 -26 Q -22 0 -42 26" fill="none" stroke={stroke} strokeWidth={3} />
+        <path
+          d={`M -42 -${bodyY} Q -22 0 -42 ${bodyY}`}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={3}
+        />
       ) : null;
     return (
       <g>
@@ -281,7 +288,7 @@ export function PaletteSymbol({ type }: { type: ComponentType }) {
   }
   if (type.startsWith("gate_")) {
     return (
-      <svg viewBox="-66 -32 132 64" width={90} height={44}>
+      <svg viewBox="-66 -56 132 112" width={90} height={64}>
         <ComponentSymbol type={type} />
       </svg>
     );

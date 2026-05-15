@@ -11,6 +11,7 @@ import {
   type PlacedComponent,
   CAPABILITIES,
   GRID,
+  connectionSnapDelta,
   snap,
   nextComponentName,
 } from "@/lib/lab/types";
@@ -206,7 +207,9 @@ function LabPage() {
           resistance: null,
           ...defaultsFor(type),
         } as PlacedComponent;
-        return [...prev, c];
+        const snapDelta = connectionSnapDelta([c], prev);
+        const placed = snapDelta ? { ...c, x: c.x + snapDelta.x, y: c.y + snapDelta.y } : c;
+        return [...prev, placed];
       });
       setSelectedIds(new Set([id]));
     },
@@ -301,6 +304,13 @@ function LabPage() {
             x: snap(wx + (c.x - cx)),
             y: snap(wy + (c.y - cy)),
           });
+        }
+        const snapDelta = connectionSnapDelta(created, prev);
+        if (snapDelta) {
+          for (const c of created) {
+            c.x += snapDelta.x;
+            c.y += snapDelta.y;
+          }
         }
         queueMicrotask(() => setSelectedIds(new Set(ids)));
         return [...prev, ...created];
