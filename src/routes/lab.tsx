@@ -461,7 +461,20 @@ function LabPage() {
       const isX = e.code === "KeyX" || e.key === "x" || e.key === "X" || e.key === "ס";
       const isD = e.code === "KeyD" || e.key === "d" || e.key === "D" || e.key === "ג";
       const isF = e.code === "KeyF" || e.key === "f" || e.key === "F" || e.key === "כ";
+      const isZ = e.code === "KeyZ" || e.key === "z" || e.key === "Z" || e.key === "ז";
+      const isY = e.code === "KeyY" || e.key === "y" || e.key === "Y" || e.key === "ט";
       const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && isZ) {
+        if (e.shiftKey) redo();
+        else undo();
+        e.preventDefault();
+        return;
+      }
+      if (ctrl && isY) {
+        redo();
+        e.preventDefault();
+        return;
+      }
       if (isR && !ctrl) {
         rotateSelected();
         e.preventDefault();
