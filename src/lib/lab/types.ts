@@ -38,7 +38,7 @@ export const CAPABILITIES: Record<ComponentType, CapabilityFlags> = {
   wire_corner: { voltage: false, current: false, resistance: false },
   wire_t: { voltage: false, current: false, resistance: false },
   wire_plus: { voltage: false, current: false, resistance: false },
-  battery: { voltage: true, current: true, resistance: false },
+  battery: { voltage: true, current: true, resistance: true },
   resistor: { voltage: false, current: false, resistance: true },
   bulb: { voltage: false, current: false, resistance: true },
   switch: { voltage: false, current: false, resistance: false },
@@ -118,7 +118,7 @@ export interface PlacedComponent {
   voltage: number | string | null; // SI value, or unknown name, or null
   current: number | string | null;
   resistance: number | string | null;
-  closed?: boolean; // for switch
+  closed?: boolean; // for switch and battery on/off state
   meterMode?: "voltage" | "current" | "resistance";
   unitOverrides?: Partial<Record<Quantity, string>>;
 }

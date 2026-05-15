@@ -45,9 +45,9 @@ function defaultsFor(type: ComponentType): Partial<PlacedComponent> {
   const caps = CAPABILITIES[type];
   return {
     voltage: caps.voltage ? (type === "battery" ? 9 : 0.7) : null,
-    current: type === "battery" ? 1 : null,
-    resistance: caps.resistance ? 100 : null,
-    closed: type === "switch" ? true : undefined,
+    current: type === "battery" ? 9 : null,
+    resistance: type === "battery" ? 1 : caps.resistance ? 100 : null,
+    closed: type === "switch" || type === "battery" ? true : undefined,
     meterMode: type === "multimeter" ? "voltage" : undefined,
   };
 }

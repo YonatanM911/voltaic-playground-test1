@@ -58,6 +58,8 @@ const LOOP_COLORS = [
 ];
 
 const DIODE_DROP_DEFAULT = 0.7;
+const BATTERY_DEFAULT_V = 9;
+const BATTERY_DEFAULT_R = 1;
 // Ideal ammeter ≈ very small resistance. Modeling it as a tiny resistor
 // (instead of a 0 V source) keeps the MNA matrix well-conditioned even when
 // the user accidentally places the ammeter in parallel with another element.
@@ -157,7 +159,7 @@ function kindOf(c: PlacedComponent): Kind {
   if (isLogicGate(t)) return "logic_gate";
   if (t === "ammeter") return "ammeter";
   if (t === "switch") return c.closed ? "wire" : "switch_open";
-  if (t === "battery") return "battery";
+  if (t === "battery") return c.closed === false ? "switch_open" : "battery";
   if (t === "diode") return "diode";
   if (t === "voltmeter") return "voltmeter";
   if (t === "ohmmeter") return "ohmmeter";
@@ -352,23 +354,18 @@ export function solve(components: PlacedComponent[]): SolveResult {
   const nodeIdxFinal = new Map<number, number>();
   for (const n of nodeIdx.keys()) nodeIdxFinal.set(n, nIdx++);
 
-  // Voltage sources (battery + diode only — ammeter is now stamped as a
-  // tiny resistor below, which avoids a singular system when it's placed in
-  // parallel with another element).
+  // Voltage sources (diodes only). Batteries with internal resistance are
+  // stamped below as Norton equivalents, and ammeters are stamped as tiny
+  // resistors.
   for (const ce of eps) {
     const k = kindOf(ce.c);
-    if (k !== "battery" && k !== "diode") continue;
+    if (k !== "diode") continue;
     const a = uf.find(ce.nodes[0]);
     const b = uf.find(ce.nodes[1]);
     const cc = compOfNode.get(a);
     if (cc == null || !compHasSource.has(cc)) continue;
-    let v: number;
-    if (k === "battery") {
-      v = num(ce.c.voltage) ?? 0;
-    } else {
-      // Diode: forward direction = a→b (terminal 0 → terminal 1).
-      v = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
-    }
+    // Diode: forward direction = a→b (terminal 0 → terminal 1).
+    const v = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
     vSourceList.push({ ce, v, nA: a, nB: b, idx: vSourceList.length, cc });
   }
 
@@ -377,12 +374,13 @@ export function solve(components: PlacedComponent[]): SolveResult {
   if (N > 0) {
     const A: number[][] = Array.from({ length: N }, () => new Array(N).fill(0));
     const bv: number[] = new Array(N).fill(0);
-    // Resistor + ammeter stamps
+    // Resistor, ammeter and battery internal-resistance stamps.
     for (const ce of eps) {
       const kk = kindOf(ce.c);
       let r: number | null = null;
       if (kk === "resistor") r = num(ce.c.resistance);
       else if (kk === "ammeter") r = AMMETER_R;
+      else if (kk === "battery") r = num(ce.c.resistance) ?? BATTERY_DEFAULT_R;
       else continue;
       if (r == null || r <= 0) continue;
       const a = uf.find(ce.nodes[0]);
@@ -397,6 +395,11 @@ export function solve(components: PlacedComponent[]): SolveResult {
       if (ia != null && ib != null) {
         A[ia][ib] -= g;
         A[ib][ia] -= g;
+      }
+      if (kk === "battery") {
+        const sourceCurrent = (num(ce.c.voltage) ?? BATTERY_DEFAULT_V) / r;
+        if (ia != null) bv[ia] += sourceCurrent;
+        if (ib != null) bv[ib] -= sourceCurrent;
       }
     }
     // Voltage source stamps
@@ -483,10 +486,16 @@ export function solve(components: PlacedComponent[]): SolveResult {
       }
     } else if (k === "battery") {
       if (!isPoweredCc) continue;
-      const current = num(ce.c.current);
-      const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
-      sc.current = current ?? (vs ? Math.abs(xSol[nIdx + vs.idx]) : null);
-      sc.voltage = num(ce.c.voltage);
+      const nominalVoltage = num(ce.c.voltage) ?? BATTERY_DEFAULT_V;
+      const internalResistance = num(ce.c.resistance) ?? BATTERY_DEFAULT_R;
+      if (internalResistance != null && internalResistance > 0) {
+        sc.voltage = Math.abs(dV);
+        sc.current = Math.abs((nominalVoltage - dV) / internalResistance);
+        sc.resistance = internalResistance;
+      } else {
+        sc.current = num(ce.c.current);
+        sc.voltage = nominalVoltage;
+      }
     } else if (k === "diode") {
       if (!isPoweredCc) continue;
       const vs = vSourceList.find((v) => v.ce.c.id === ce.c.id);
@@ -558,7 +567,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     });
   }
   // Lone consumers (no battery anywhere → "חסר ספק")
-  const anyBattery = components.some((c) => c.type === "battery");
+  const anyBattery = components.some((c) => c.type === "battery" && c.closed !== false);
   if (!anyBattery) {
     for (const ce of eps) {
       const t = ce.c.type;
@@ -662,7 +671,7 @@ function computeLogicGateReadings(
 ) {
   const nodeLogic = new Map<number, 0 | 1>();
   for (const ce of eps) {
-    if (ce.c.type !== "battery") continue;
+    if (ce.c.type !== "battery" || ce.c.closed === false) continue;
     const v = num(ce.c.voltage);
     if (v == null) continue;
     const highNode = uf.find(ce.nodes[1]);
