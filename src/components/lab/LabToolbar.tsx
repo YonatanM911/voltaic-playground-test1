@@ -2,7 +2,7 @@
 // zoom, focus (recenter), clear, and the live search field.
 import { Link } from "@tanstack/react-router";
 import {
-  Home, Settings, Hand, MousePointer2, Trash2, RotateCw, ZoomIn, ZoomOut, Crosshair, Search, BookOpen,
+  Home, Settings, Hand, MousePointer2, Trash2, RotateCw, ZoomIn, ZoomOut, Crosshair, Search, BookOpen, Undo2, Redo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,13 +17,17 @@ interface Props {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFocus: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   search: string;
   setSearch: (s: string) => void;
   searchCount: number;
 }
 
 export function LabToolbar({
-  tool, setTool, onClear, onGoHome, onRotateSelected, onZoomIn, onZoomOut, onFocus, search, setSearch, searchCount,
+  tool, setTool, onClear, onGoHome, onRotateSelected, onZoomIn, onZoomOut, onFocus, onUndo, onRedo, canUndo, canRedo, search, setSearch, searchCount,
 }: Props) {
   return (
     <div
