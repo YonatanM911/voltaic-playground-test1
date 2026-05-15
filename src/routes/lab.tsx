@@ -68,7 +68,67 @@ function LabPage() {
   const [saveNameOpen, setSaveNameOpen] = useState(false);
   const [saveNameValue, setSaveNameValue] = useState("");
   const [settings] = useAppSettings();
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // --- Undo / Redo history (debounced snapshots of components) ---
+  const pastRef = useRef<PlacedComponent[][]>([]);
+  const futureRef = useRef<PlacedComponent[][]>([]);
+  const lastCommittedRef = useRef<PlacedComponent[]>(components);
+  const applyingHistoryRef = useRef(false);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, setHistoryTick] = useState(0);
+  const HISTORY_LIMIT = 100;
+
+  useEffect(() => {
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      lastCommittedRef.current = components;
+      return;
+    }
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      const prev = lastCommittedRef.current;
+      if (prev === components) return;
+      pastRef.current.push(prev);
+      if (pastRef.current.length > HISTORY_LIMIT) pastRef.current.shift();
+      futureRef.current = [];
+      lastCommittedRef.current = components;
+      setHistoryTick((t) => t + 1);
+    }, 250);
+    return () => {
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    };
+  }, [components]);
+
+  const undo = useCallback(() => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+      if (lastCommittedRef.current !== components) {
+        pastRef.current.push(lastCommittedRef.current);
+        lastCommittedRef.current = components;
+      }
+    }
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push(components);
+    applyingHistoryRef.current = true;
+    setComponents(prev);
+    setHistoryTick((t) => t + 1);
+  }, [components]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(components);
+    applyingHistoryRef.current = true;
+    setComponents(next);
+    setHistoryTick((t) => t + 1);
+  }, [components]);
+
+  const canUndo = pastRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
 
   useEffect(() => {
     applyTheme(getInitialTheme());
@@ -401,7 +461,20 @@ function LabPage() {
       const isX = e.code === "KeyX" || e.key === "x" || e.key === "X" || e.key === "ס";
       const isD = e.code === "KeyD" || e.key === "d" || e.key === "D" || e.key === "ג";
       const isF = e.code === "KeyF" || e.key === "f" || e.key === "F" || e.key === "כ";
+      const isZ = e.code === "KeyZ" || e.key === "z" || e.key === "Z" || e.key === "ז";
+      const isY = e.code === "KeyY" || e.key === "y" || e.key === "Y" || e.key === "ט";
       const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && isZ) {
+        if (e.shiftKey) redo();
+        else undo();
+        e.preventDefault();
+        return;
+      }
+      if (ctrl && isY) {
+        redo();
+        e.preventDefault();
+        return;
+      }
       if (isR && !ctrl) {
         rotateSelected();
         e.preventDefault();
@@ -454,6 +527,8 @@ function LabPage() {
     cutToClipboard,
     copySelected,
     focusCamera,
+    undo,
+    redo,
     selectedIds,
   ]);
 
@@ -490,12 +565,21 @@ function LabPage() {
         onZoomIn={() => zoomBy(1.25)}
         onZoomOut={() => zoomBy(1 / 1.25)}
         onFocus={focusCamera}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         search={search}
         setSearch={setSearch}
         searchCount={searchHits.size}
       />
 
-      <Palette onDrop={onPaletteDrop} onOpenImport={() => setImportOpen(true)} />
+      <Palette
+        onDrop={onPaletteDrop}
+        onOpenImport={() => setImportOpen(true)}
+        collapsed={paletteCollapsed}
+        setCollapsed={setPaletteCollapsed}
+      />
 
       <ImportDialog
         open={importOpen}

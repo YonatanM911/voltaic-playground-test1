@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentType, PlacedComponent } from "@/lib/lab/types";
 import { COMPONENT_LABEL_HE } from "@/lib/lab/types";
 import { ComponentSymbol, PaletteSymbol } from "@/lib/lab/symbols";
-import { Plus, GripHorizontal } from "lucide-react";
+import { Plus, GripHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 
 const PALETTE_ITEMS: ComponentType[] = [
   "wire",
@@ -35,11 +35,13 @@ interface DropPayload {
 interface Props {
   onDrop: (p: DropPayload) => void;
   onOpenImport: () => void;
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
 }
 
 const DRAG_THRESHOLD = 8; // px before a press becomes a drag
 
-export function Palette({ onDrop, onOpenImport }: Props) {
+export function Palette({ onDrop, onOpenImport, collapsed, setCollapsed }: Props) {
   const [drag, setDrag] = useState<{
     type: ComponentType;
     rotation: PlacedComponent["rotation"];
@@ -122,45 +124,68 @@ export function Palette({ onDrop, onOpenImport }: Props) {
         className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/90 backdrop-blur"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div
-          className="mx-auto max-w-screen-xl overflow-x-auto overflow-y-hidden overscroll-contain px-3 py-2 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
-          style={{ touchAction: "pan-x" }}
-        >
-          {/* Larger, more visible drag/scroll handle */}
-          <div className="mb-2 flex min-w-max items-center justify-center">
-            <div className="flex h-5 w-full items-center justify-center rounded-full bg-primary/25 ring-1 ring-primary/40">
-              <GripHorizontal className="size-4 text-primary" />
-            </div>
-          </div>
-          <div className="flex min-w-max items-stretch gap-2 pb-1">
+        {collapsed ? (
+          <div className="mx-auto flex max-w-screen-xl items-center justify-center px-3 py-2">
             <button
               type="button"
-              onClick={onOpenImport}
-              className="flex min-w-[104px] select-none flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-3 text-foreground transition hover:border-primary hover:bg-accent"
-              title="הוספה וייבוא"
+              onClick={() => setCollapsed(false)}
+              className="flex items-center gap-2 rounded-full border border-border bg-background px-4 py-1.5 text-xs font-medium text-foreground shadow-sm transition hover:border-primary hover:bg-accent"
+              title="הצג סרגל רכיבים"
             >
-              <div className="flex h-10 items-center justify-center">
-                <Plus className="size-7" />
-              </div>
-              <div className="text-[11px] font-medium">הוספה</div>
+              <ChevronUp className="size-4" />
+              הצג רכיבים
             </button>
-            {PALETTE_ITEMS.map((t) => (
+          </div>
+        ) : (
+          <div
+            className="mx-auto max-w-screen-xl overflow-x-auto overflow-y-hidden overscroll-contain px-3 py-2 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
+            style={{ touchAction: "pan-x" }}
+          >
+            <div className="mb-2 flex min-w-max items-center justify-between gap-2">
               <button
-                key={t}
                 type="button"
-                onPointerDown={(e) => beginPress(e, t)}
-                style={{ touchAction: "pan-x" }}
-                className="flex min-w-[104px] cursor-grab select-none flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-3 text-foreground transition hover:border-primary hover:bg-accent active:cursor-grabbing"
-                title="גרור מעלה אל הלוח (R לסיבוב בזמן גרירה)"
+                onClick={() => setCollapsed(true)}
+                className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground transition hover:border-primary hover:bg-accent"
+                title="הסתר סרגל"
+              >
+                <ChevronDown className="size-3.5" />
+                הסתר
+              </button>
+              <div className="flex h-5 flex-1 items-center justify-center rounded-full bg-primary/25 ring-1 ring-primary/40">
+                <GripHorizontal className="size-4 text-primary" />
+              </div>
+              <span className="w-[64px]" />
+            </div>
+            <div className="flex min-w-max items-stretch gap-2 pb-1">
+              <button
+                type="button"
+                onClick={onOpenImport}
+                className="flex min-w-[104px] select-none flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-3 text-foreground transition hover:border-primary hover:bg-accent"
+                title="הוספה וייבוא"
               >
                 <div className="flex h-10 items-center justify-center">
-                  <PaletteSymbol type={t} />
+                  <Plus className="size-7" />
                 </div>
-                <div className="text-[11px] font-medium">{COMPONENT_LABEL_HE[t]}</div>
+                <div className="text-[11px] font-medium">הוספה</div>
               </button>
-            ))}
+              {PALETTE_ITEMS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onPointerDown={(e) => beginPress(e, t)}
+                  style={{ touchAction: "pan-x" }}
+                  className="flex min-w-[104px] cursor-grab select-none flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-3 text-foreground transition hover:border-primary hover:bg-accent active:cursor-grabbing"
+                  title="גרור מעלה אל הלוח (R לסיבוב בזמן גרירה)"
+                >
+                  <div className="flex h-10 items-center justify-center">
+                    <PaletteSymbol type={t} />
+                  </div>
+                  <div className="text-[11px] font-medium">{COMPONENT_LABEL_HE[t]}</div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {drag && (
