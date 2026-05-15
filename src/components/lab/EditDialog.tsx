@@ -1,7 +1,5 @@
-// Edit dialog. Shows the rename field, all three quantities (V/I/R) and
-// — even when a quantity is not editable for this component type — its
-// solved reading from the simulation. Each quantity also has a unit
-// picker that overrides the global default.
+// Edit dialog. Shows component values, solved readings, unit overrides,
+// and value toggles for parts whose physical values can be derived.
 import { useEffect, useRef, useState } from "react";
 import {
   CAPABILITIES,
@@ -9,14 +7,7 @@ import {
   parseField,
   type PlacedComponent,
 } from "@/lib/lab/types";
-import {
-  BASE_UNIT,
-  fromBase,
-  prefixedUnits,
-  toBase,
-  unitFactor,
-  type Quantity,
-} from "@/lib/lab/units";
+import { BASE_UNIT, fromBase, prefixedUnits, toBase, type Quantity } from "@/lib/lab/units";
 import {
   Dialog,
   DialogContent,
@@ -46,13 +37,16 @@ interface FieldState {
   error: string | null;
 }
 
+type EnabledMap = Record<Quantity, boolean>;
+
+const QUANTITIES: Quantity[] = ["voltage", "current", "resistance"];
+const EPS = 1e-12;
+
 function toRaw(siValue: number | string | null, unit: string, q: Quantity): string {
   if (siValue == null) return "";
-  if (typeof siValue === "string") return siValue; // unknown name
+  if (typeof siValue === "string") return siValue;
   return String(fromBase(siValue, unit, q));
 }
-
-const EPS = 1e-12;
 
 export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDelete }: Props) {
   const [settings] = useAppSettings();
@@ -61,6 +55,11 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   const [voltage, setVoltage] = useState<FieldState>({ raw: "", error: null });
   const [current, setCurrent] = useState<FieldState>({ raw: "", error: null });
   const [resistance, setResistance] = useState<FieldState>({ raw: "", error: null });
+  const [enabled, setEnabled] = useState<EnabledMap>({
+    voltage: true,
+    current: true,
+    resistance: true,
+  });
   const [voltUnit, setVoltUnit] = useState("V");
   const [currUnit, setCurrUnit] = useState("A");
   const [meterMode, setMeterMode] = useState<NonNullable<PlacedComponent["meterMode"]>>("voltage");
@@ -77,6 +76,9 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
     loadedComponentId.current = component.id;
     setFormError(null);
     setName(component.name);
+    const nextEnabled = inferValueEnabled(component);
+    setEnabled(nextEnabled);
+
     const vU = component.unitOverrides?.voltage ?? settings.defaultUnit.voltage;
     const cU = component.unitOverrides?.current ?? settings.defaultUnit.current;
     const rU = component.unitOverrides?.resistance ?? settings.defaultUnit.resistance;
@@ -84,26 +86,23 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
     setCurrUnit(cU);
     setResUnit(rU);
     setMeterMode(component.meterMode ?? "voltage");
+
     const defaultVoltage =
-      component.type === "battery"
+      component.type === "battery" || component.type === "diode"
         ? component.voltage == null
-          ? 9
+          ? component.type === "battery"
+            ? 9
+            : 0.7
           : component.voltage
         : component.constraints?.voltage ?? null;
     const defaultResistance =
       component.type === "battery"
-        ? component.resistance == null
-          ? 1
-          : component.resistance
+        ? component.resistance
         : hasPhysicalResistance(component)
           ? component.resistance
           : component.constraints?.resistance ?? null;
     const defaultCurrent =
-      component.type === "battery"
-        ? component.current == null
-          ? 9
-          : component.current
-        : component.constraints?.current ?? null;
+      component.type === "battery" ? component.current : component.constraints?.current ?? null;
     setVoltage({ raw: toRaw(defaultVoltage, vU, "voltage"), error: null });
     setCurrent({ raw: toRaw(defaultCurrent, cU, "current"), error: null });
     setResistance({ raw: toRaw(defaultResistance, rU, "resistance"), error: null });
@@ -113,17 +112,17 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   const caps = CAPABILITIES[component.type];
   const sc = solve.components[component.id];
   const existingConstraintError = solve.constraintErrors.find((e) => e.componentId === component.id);
+
+  const canToggleField = (q: Quantity): boolean => {
+    if (component.type === "battery") return caps[q];
+    return hasPhysicalResistance(component);
+  };
+
   const fieldEditable = (q: Quantity): boolean => {
     if (isMeter(component)) return false;
-    if (component.type === "battery") return caps[q];
-    if (q === "resistance" && hasPhysicalResistance(component)) return true;
+    if (canToggleField(q)) return enabled[q];
+    if (component.type === "diode") return q === "voltage";
     return true;
-  };
-  const fieldRole = (q: Quantity): "gives" | "gets" | "carries" | "has" => {
-    if (component.type === "battery") return q === "resistance" ? "has" : "gives";
-    if (q === "resistance") return "has";
-    if (q === "current") return "carries";
-    return "gets";
   };
 
   const parseBaseNumber = (raw: string, unit: string, q: Quantity): number | null => {
@@ -155,6 +154,11 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
     else setResUnit(unit);
   };
 
+  const setQuantityError = (q: Quantity, error: string | null) => {
+    const state = currentFieldState(q);
+    setFieldState(q, { ...state, error });
+  };
+
   const handleUnitChange = (q: Quantity, nextUnit: string) => {
     const prevUnit = currentUnit(q);
     const state = currentFieldState(q);
@@ -172,6 +176,12 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
     });
   };
 
+  const handleToggle = (q: Quantity, checked: boolean) => {
+    setFormError(null);
+    setEnabled((prev) => ({ ...prev, [q]: checked }));
+    setQuantityError(q, null);
+  };
+
   const handleBatteryFieldChange = (q: Quantity, raw: string) => {
     setFormError(null);
     const unit = currentUnit(q);
@@ -181,153 +191,118 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
 
     const editedValue = toBase(parsed.value, unit, q);
     let nextVoltage =
-      parseBaseNumber(voltage.raw, voltUnit, "voltage") ?? numOrNull(component.voltage);
+      q === "voltage"
+        ? editedValue
+        : parseBaseNumber(voltage.raw, voltUnit, "voltage") ?? numOrNull(component.voltage);
     let nextCurrent =
-      parseBaseNumber(current.raw, currUnit, "current") ?? numOrNull(component.current);
+      q === "current"
+        ? editedValue
+        : parseBaseNumber(current.raw, currUnit, "current") ?? numOrNull(component.current);
     let nextResistance =
-      parseBaseNumber(resistance.raw, resUnit, "resistance") ?? numOrNull(component.resistance);
+      q === "resistance"
+        ? editedValue
+        : parseBaseNumber(resistance.raw, resUnit, "resistance") ?? numOrNull(component.resistance);
 
-    if (q === "voltage") {
-      nextVoltage = editedValue;
-      if (nextResistance != null && Math.abs(nextResistance) > EPS) {
+    if (q === "voltage" && enabled.current && enabled.resistance && nextResistance != null) {
+      if (nextResistance > EPS) {
         nextCurrent = nextVoltage / nextResistance;
         setCurrent({ raw: toRaw(nextCurrent, currUnit, "current"), error: null });
       }
-    } else if (q === "current") {
-      nextCurrent = editedValue;
-      if (Math.abs(nextCurrent) <= EPS || nextVoltage == null) {
-        setCurrent({ raw, error: "Current must not be zero" });
-        return;
+    } else if (q === "current" && enabled.voltage && enabled.resistance) {
+      if (nextCurrent > EPS && nextVoltage != null) {
+        nextResistance = nextVoltage / nextCurrent;
+        setResistance({ raw: toRaw(nextResistance, resUnit, "resistance"), error: null });
       }
-      nextResistance = nextVoltage / nextCurrent;
-      setResistance({ raw: toRaw(nextResistance, resUnit, "resistance"), error: null });
-    } else {
-      nextResistance = editedValue;
-      if (Math.abs(nextResistance) <= EPS || nextVoltage == null) {
-        setResistance({ raw, error: "Resistance must not be zero" });
-        return;
+    } else if (q === "resistance" && enabled.voltage && enabled.current) {
+      if (nextResistance > EPS && nextVoltage != null) {
+        nextCurrent = nextVoltage / nextResistance;
+        setCurrent({ raw: toRaw(nextCurrent, currUnit, "current"), error: null });
       }
-      nextCurrent = nextVoltage / nextResistance;
-      setCurrent({ raw: toRaw(nextCurrent, currUnit, "current"), error: null });
     }
-
-    onUpdate({
-      ...component,
-      voltage: nextVoltage,
-      current: nextCurrent,
-      resistance: nextResistance,
-      unitOverrides: { voltage: voltUnit, current: currUnit, resistance: resUnit },
-    });
   };
 
   const validateAndCommit = () => {
-    const items: {
-      state: FieldState;
-      setter: (s: FieldState) => void;
-      enabled: boolean;
-      unit: string;
-      q: Quantity;
-    }[] = [
-      {
-        state: voltage,
-        setter: setVoltage,
-        enabled: fieldEditable("voltage"),
-        unit: voltUnit,
-        q: "voltage",
-      },
-      {
-        state: current,
-        setter: setCurrent,
-        enabled: fieldEditable("current"),
-        unit: currUnit,
-        q: "current",
-      },
-      {
-        state: resistance,
-        setter: setResistance,
-        enabled: fieldEditable("resistance"),
-        unit: resUnit,
-        q: "resistance",
-      },
-    ];
     setFormError(null);
     let ok = true;
-    const parsed: (number | string | null)[] = [null, null, null];
-    items.forEach((it, i) => {
-      if (!it.enabled) return;
-      const r = parseField(it.state.raw);
-      if (r.kind === "error") {
-        it.setter({ ...it.state, error: r.message });
-        ok = false;
-      } else {
-        it.setter({ ...it.state, error: null });
-        if (r.kind === "number") {
-          const baseValue = toBase(r.value, it.unit, it.q);
-          if (component.type === "battery" && it.q === "current" && Math.abs(baseValue) <= EPS) {
-            it.setter({ ...it.state, error: "Value must not be zero" });
-            ok = false;
-            return;
-          }
-          if (
-            ((component.type === "battery" && it.q === "resistance") ||
-              (it.q === "resistance" && hasPhysicalResistance(component))) &&
-            baseValue <= EPS
-          ) {
-            it.setter({ ...it.state, error: "Value must be greater than zero" });
-            ok = false;
-            return;
-          }
-          if (component.type !== "battery" && !hasPhysicalField(component, it.q) && baseValue < 0) {
-            it.setter({ ...it.state, error: "Target must be non-negative" });
-            ok = false;
-            return;
-          }
-          parsed[i] = baseValue;
-        } else {
-          parsed[i] = null;
-        }
+    const parsed: Partial<Record<Quantity, number>> = {};
+
+    for (const q of QUANTITIES) {
+      const state = currentFieldState(q);
+      if (!fieldEditable(q)) {
+        setFieldState(q, { ...state, error: null });
+        continue;
       }
-    });
+      const r = parseField(state.raw);
+      if (r.kind === "error") {
+        setFieldState(q, { ...state, error: r.message });
+        ok = false;
+        continue;
+      }
+      setFieldState(q, { ...state, error: null });
+      if (r.kind === "number") parsed[q] = toBase(r.value, currentUnit(q), q);
+    }
     if (!ok) return;
 
     const constraints = { ...(component.constraints ?? {}) };
-    const assignConstraint = (q: Quantity, value: number | string | null) => {
-      if (typeof value === "number") constraints[q] = value;
-      else delete constraints[q];
-    };
+    let nextVoltage: number | string | null = component.voltage;
+    let nextCurrent: number | string | null = component.current;
+    let nextResistance: number | string | null = component.resistance;
+    let nextValueEnabled: PlacedComponent["valueEnabled"] = component.valueEnabled;
 
-    if (component.type !== "battery") {
-      assignConstraint("voltage", parsed[0]);
-      assignConstraint("current", parsed[1]);
-      if (hasPhysicalResistance(component)) delete constraints.resistance;
-      else assignConstraint("resistance", parsed[2]);
+    if (component.type === "battery") {
+      const derived = validateBatteryValues(parsed, enabled, setQuantityError);
+      if (!derived) return;
+      nextVoltage = derived.voltage;
+      nextCurrent = derived.current;
+      nextResistance = derived.resistance;
+      nextValueEnabled = { ...enabled };
+    } else if (hasPhysicalResistance(component)) {
+      const derived = validateLoadValues(parsed, enabled, setQuantityError);
+      if (!derived) return;
+      nextVoltage = component.voltage;
+      nextCurrent = component.current;
+      nextResistance = derived.resistance;
+      nextValueEnabled = { ...enabled };
+      if (enabled.voltage && typeof parsed.voltage === "number") constraints.voltage = parsed.voltage;
+      else delete constraints.voltage;
+      if (enabled.current && typeof parsed.current === "number") constraints.current = parsed.current;
+      else delete constraints.current;
+      delete constraints.resistance;
+    } else if (component.type === "diode") {
+      if (typeof parsed.voltage !== "number") {
+        setQuantityError("voltage", "Value is required");
+        return;
+      }
+      if (parsed.voltage < 0) {
+        setQuantityError("voltage", "Value must be non-negative");
+        return;
+      }
+      nextVoltage = parsed.voltage;
+      delete constraints.voltage;
+      delete constraints.current;
+      delete constraints.resistance;
+      nextValueEnabled = { voltage: true, current: false, resistance: false };
+    } else if (!isMeter(component)) {
+      for (const q of QUANTITIES) {
+        if (typeof parsed[q] === "number") constraints[q] = parsed[q];
+        else delete constraints[q];
+      }
     }
 
     const next: PlacedComponent = {
       ...component,
       name: name.trim() || component.name,
-      voltage: component.type === "battery" && caps.voltage ? parsed[0] : component.voltage,
-      current: component.type === "battery" && caps.current ? parsed[1] : component.current,
-      resistance:
-        (component.type === "battery" && caps.resistance) || hasPhysicalResistance(component)
-          ? parsed[2]
-          : component.resistance,
+      voltage: nextVoltage,
+      current: nextCurrent,
+      resistance: nextResistance,
       meterMode: component.type === "multimeter" ? meterMode : component.meterMode,
       unitOverrides: { voltage: voltUnit, current: currUnit, resistance: resUnit },
       constraints: Object.keys(constraints).length > 0 ? constraints : undefined,
+      valueEnabled: nextValueEnabled,
     };
     const saveError = onSave(next);
     if (saveError) setFormError(saveError);
   };
-
-  const formatReading = (v: number | null, unit: string): string => {
-    if (v == null) return "—";
-    const display = v / unitFactor(unit, "voltage" as Quantity); // factor only depends on prefix length
-    void display;
-    // proper unit-aware display
-    return formatWithUnit(v, unit);
-  };
-  void formatReading;
 
   function formatWithUnit(siValue: number | null, unit: string): string {
     if (siValue == null) return "—";
@@ -357,7 +332,8 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
           <FieldBox
             label="מתח"
             disabled={!fieldEditable("voltage")}
-            role={fieldRole("voltage")}
+            toggleChecked={canToggleField("voltage") ? enabled.voltage : undefined}
+            onToggle={canToggleField("voltage") ? (v) => handleToggle("voltage", v) : undefined}
             state={voltage}
             unit={voltUnit}
             q="voltage"
@@ -372,7 +348,8 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
           <FieldBox
             label="זרם"
             disabled={!fieldEditable("current")}
-            role={fieldRole("current")}
+            toggleChecked={canToggleField("current") ? enabled.current : undefined}
+            onToggle={canToggleField("current") ? (v) => handleToggle("current", v) : undefined}
             state={current}
             unit={currUnit}
             q="current"
@@ -387,7 +364,10 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
           <FieldBox
             label="התנגדות"
             disabled={!fieldEditable("resistance")}
-            role={fieldRole("resistance")}
+            toggleChecked={canToggleField("resistance") ? enabled.resistance : undefined}
+            onToggle={
+              canToggleField("resistance") ? (v) => handleToggle("resistance", v) : undefined
+            }
             state={resistance}
             unit={resUnit}
             q="resistance"
@@ -457,6 +437,163 @@ export function EditDialog({ component, solve, onClose, onSave, onUpdate, onDele
   );
 }
 
+function validateBatteryValues(
+  parsed: Partial<Record<Quantity, number>>,
+  enabled: EnabledMap,
+  setError: (q: Quantity, message: string | null) => void,
+): { voltage: number | null; current: number | null; resistance: number | null } | null {
+  const requireNumber = (q: Quantity): number | null => {
+    if (!enabled[q]) return null;
+    const value = parsed[q];
+    if (typeof value !== "number") {
+      setError(q, "Value is required");
+      return null;
+    }
+    return value;
+  };
+
+  const v = requireNumber("voltage");
+  const i = requireNumber("current");
+  const r = requireNumber("resistance");
+  if (
+    (enabled.voltage && v == null) ||
+    (enabled.current && i == null) ||
+    (enabled.resistance && r == null)
+  ) {
+    return null;
+  }
+
+  if (!enabled.voltage && !(enabled.current && enabled.resistance)) {
+    setError("voltage", "Enter voltage or current and resistance");
+    return null;
+  }
+  if (enabled.voltage && v != null && v < 0) {
+    setError("voltage", "Value must be non-negative");
+    return null;
+  }
+  if (enabled.current && i != null && i < 0) {
+    setError("current", "Value must be non-negative");
+    return null;
+  }
+  if (enabled.resistance && (r == null || r <= EPS)) {
+    setError("resistance", "Value must be greater than zero");
+    return null;
+  }
+
+  let voltage = enabled.voltage ? v! : null;
+  let current = enabled.current ? i! : null;
+  let resistance = enabled.resistance ? r! : null;
+
+  if (enabled.voltage && enabled.current && enabled.resistance) {
+    if (!nearlyEqual(voltage!, current! * resistance!)) {
+      setError("voltage", "Values do not match V = I × R");
+      return null;
+    }
+  } else if (enabled.current && enabled.resistance && !enabled.voltage) {
+    voltage = current! * resistance!;
+  } else if (enabled.voltage && enabled.resistance && !enabled.current) {
+    current = voltage! / resistance!;
+  } else if (enabled.voltage && enabled.current && !enabled.resistance) {
+    if (current! <= EPS) {
+      setError("current", "Current must be greater than zero to calculate resistance");
+      return null;
+    }
+    resistance = voltage! / current!;
+  } else if (!enabled.voltage) {
+    setError("voltage", "Enter voltage or current and resistance");
+    return null;
+  }
+
+  return { voltage, current, resistance };
+}
+
+function validateLoadValues(
+  parsed: Partial<Record<Quantity, number>>,
+  enabled: EnabledMap,
+  setError: (q: Quantity, message: string | null) => void,
+): { resistance: number } | null {
+  const hasR = enabled.resistance && typeof parsed.resistance === "number";
+  const hasV = enabled.voltage && typeof parsed.voltage === "number";
+  const hasI = enabled.current && typeof parsed.current === "number";
+
+  if (enabled.resistance && !hasR) {
+    setError("resistance", "Value is required");
+    return null;
+  }
+  if (enabled.voltage && !hasV) {
+    setError("voltage", "Value is required");
+    return null;
+  }
+  if (enabled.current && !hasI) {
+    setError("current", "Value is required");
+    return null;
+  }
+  if (hasV && parsed.voltage! < 0) {
+    setError("voltage", "Value must be non-negative");
+    return null;
+  }
+  if (hasI && parsed.current! < 0) {
+    setError("current", "Value must be non-negative");
+    return null;
+  }
+  if (hasR && parsed.resistance! <= EPS) {
+    setError("resistance", "Value must be greater than zero");
+    return null;
+  }
+
+  let resistance = hasR ? parsed.resistance! : null;
+  if (resistance == null) {
+    if (!hasV || !hasI) {
+      setError("resistance", "Enter resistance or voltage and current");
+      return null;
+    }
+    if (parsed.current! <= EPS) {
+      setError("current", "Current must be greater than zero to calculate resistance");
+      return null;
+    }
+    resistance = parsed.voltage! / parsed.current!;
+  }
+
+  if (hasV && hasI && !nearlyEqual(parsed.voltage!, parsed.current! * resistance)) {
+    setError("voltage", "Values do not match V = I × R");
+    return null;
+  }
+
+  return { resistance };
+}
+
+function inferValueEnabled(component: PlacedComponent): EnabledMap {
+  if (component.valueEnabled) {
+    return {
+      voltage: !!component.valueEnabled.voltage,
+      current: !!component.valueEnabled.current,
+      resistance: !!component.valueEnabled.resistance,
+    };
+  }
+  if (component.type === "battery") {
+    return {
+      voltage: component.voltage != null,
+      current: component.current != null,
+      resistance: component.resistance != null,
+    };
+  }
+  if (hasPhysicalResistance(component)) {
+    return {
+      voltage: component.constraints?.voltage != null,
+      current: component.constraints?.current != null,
+      resistance: component.resistance != null,
+    };
+  }
+  if (component.type === "diode") {
+    return { voltage: true, current: false, resistance: false };
+  }
+  return {
+    voltage: component.constraints?.voltage != null,
+    current: component.constraints?.current != null,
+    resistance: component.constraints?.resistance != null,
+  };
+}
+
 function numOrNull(value: number | string | null): number | null {
   return typeof value === "number" ? value : null;
 }
@@ -474,17 +611,16 @@ function hasPhysicalResistance(component: PlacedComponent): boolean {
   return component.type === "resistor" || component.type === "bulb";
 }
 
-function hasPhysicalField(component: PlacedComponent, q: Quantity): boolean {
-  return component.type === "battery" || (q === "resistance" && hasPhysicalResistance(component));
-}
-
 function hasFieldErrors(...fields: FieldState[]): boolean {
   return fields.some((field) => field.error != null);
 }
 
+function nearlyEqual(a: number, b: number, tolerance = 1e-6): boolean {
+  return Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+}
+
 function FieldBox({
   label,
-  role,
   state,
   onChange,
   disabled,
@@ -492,9 +628,10 @@ function FieldBox({
   q,
   onUnitChange,
   reading,
+  toggleChecked,
+  onToggle,
 }: {
   label: string;
-  role: "gives" | "gets" | "carries" | "has";
   state: FieldState;
   onChange: (v: string) => void;
   disabled?: boolean;
@@ -502,20 +639,21 @@ function FieldBox({
   q: Quantity;
   onUnitChange: (u: string) => void;
   reading: string;
+  toggleChecked?: boolean;
+  onToggle?: (checked: boolean) => void;
 }) {
   const units = prefixedUnits(q);
+  const hasToggle = toggleChecked != null && onToggle != null;
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between">
-        <Label>
-          {label} ({BASE_UNIT[q]})
-        </Label>
+      <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {role}
-          </span>
-          <span className="text-[11px] text-muted-foreground">{reading}</span>
+          {hasToggle && <Switch checked={toggleChecked} onCheckedChange={onToggle} />}
+          <Label>
+            {label} ({BASE_UNIT[q]})
+          </Label>
         </div>
+        <span className="text-[11px] text-muted-foreground">{reading}</span>
       </div>
       <div className="flex gap-2 px-1">
         <Input
@@ -528,7 +666,8 @@ function FieldBox({
         <select
           value={unit}
           onChange={(e) => onUnitChange(e.target.value)}
-          className="w-20 shrink-0 rounded-md border border-input bg-background px-2 pe-6 text-sm"
+          disabled={disabled}
+          className="w-20 shrink-0 rounded-md border border-input bg-background px-2 pe-6 text-sm disabled:opacity-60"
         >
           {units.map((u) => (
             <option key={u} value={u}>

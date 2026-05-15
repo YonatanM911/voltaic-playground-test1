@@ -44,12 +44,21 @@ const newId = () => `c${nextId++}_${Date.now().toString(36)}`;
 
 function defaultsFor(type: ComponentType): Partial<PlacedComponent> {
   const caps = CAPABILITIES[type];
+  const valueEnabled =
+    type === "battery"
+      ? { voltage: true, current: false, resistance: false }
+      : type === "resistor" || type === "bulb"
+        ? { voltage: false, current: false, resistance: true }
+        : type === "diode"
+          ? { voltage: true, current: false, resistance: false }
+          : undefined;
   return {
     voltage: caps.voltage ? (type === "battery" ? 9 : 0.7) : null,
     current: type === "battery" ? 9 : null,
     resistance: type === "battery" ? 1 : caps.resistance ? 100 : null,
     closed: type === "switch" || type === "battery" ? true : undefined,
     meterMode: type === "multimeter" ? "voltage" : undefined,
+    valueEnabled,
   };
 }
 
@@ -212,6 +221,7 @@ function LabPage() {
         return [...prev, placed];
       });
       setSelectedIds(new Set([id]));
+      setEditingId(id);
     },
     [],
   );

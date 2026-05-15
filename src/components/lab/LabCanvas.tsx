@@ -439,6 +439,26 @@ export function LabCanvas({
     return "-";
   };
 
+  const warningBanner = (() => {
+    const ids =
+      solve.constraintErrors.length > 0
+        ? solve.constraintErrors.map((e) => e.componentId)
+        : solve.openWarnings.flatMap((w) => w.ids);
+    if (ids.length === 0) return null;
+    const names = Array.from(
+      new Set(
+        ids
+          .map((id) => components.find((c) => c.id === id))
+          .filter((c): c is PlacedComponent => c != null)
+          .map(displayComponentName),
+      ),
+    );
+    return {
+      title: solve.constraintErrors.length > 0 ? "בעיה בערכים במעגל" : "המעגל לא סגור",
+      detail: names.length > 0 ? `בעיה ברכיבים: ${names.join(", ")}` : null,
+    };
+  })();
+
   // floating action bar position (in screen coords)
   let actionBar: { left: number; top: number } | null = null;
   if (selectedIds.size > 0) {
@@ -578,9 +598,13 @@ export function LabCanvas({
                   ? "חסר ספק"
                   : w.reason === "switch_open"
                     ? "מפסק פתוח"
+                    : w.reason === "missing_return"
+                      ? "אין חזרה לסוללה"
                     : "מעגל פתוח";
             const displayLabel = w.reason === "missing_consumer" ? "אין שום צרכן" : label;
-            const wid = displayLabel.length * 8 + 22;
+            const normalizedLabel =
+              w.reason === "missing_return" ? "אין חזרה לסוללה" : displayLabel;
+            const wid = normalizedLabel.length * 8 + 22;
             return (
               <g key={`ow${i}`}>
                 <rect
@@ -600,7 +624,7 @@ export function LabCanvas({
                   fontWeight={700}
                   fill="var(--destructive-foreground)"
                 >
-                  {displayLabel}
+                  {normalizedLabel}
                 </text>
               </g>
             );
@@ -622,12 +646,15 @@ export function LabCanvas({
         </g>
       </svg>
 
-      {solve.openWarnings.length > 0 && (
+      {warningBanner && (
         <div
           dir="rtl"
-          className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-lg"
+          className="pointer-events-none absolute left-1/2 top-16 z-20 min-w-56 -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive px-4 py-2 text-center text-sm font-semibold text-destructive-foreground shadow-lg"
         >
-          המעגל לא סגור
+          <div>{warningBanner.title}</div>
+          {warningBanner.detail && (
+            <div className="mt-1 text-xs font-medium opacity-95">{warningBanner.detail}</div>
+          )}
         </div>
       )}
 

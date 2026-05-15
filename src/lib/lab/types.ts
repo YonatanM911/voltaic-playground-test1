@@ -122,6 +122,7 @@ export interface PlacedComponent {
   meterMode?: "voltage" | "current" | "resistance";
   unitOverrides?: Partial<Record<Quantity, string>>;
   constraints?: Partial<Record<Quantity, number>>;
+  valueEnabled?: Partial<Record<Quantity, boolean>>;
 }
 
 export interface Terminal {

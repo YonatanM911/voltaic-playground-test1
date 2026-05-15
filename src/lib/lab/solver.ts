@@ -47,7 +47,7 @@ export interface SolveResult {
     centerX: number;
     centerY: number;
     ids: string[];
-    reason: "open" | "missing_consumer" | "missing_source" | "switch_open";
+    reason: "open" | "missing_return" | "missing_consumer" | "missing_source" | "switch_open";
   }[];
 }
 
@@ -300,8 +300,16 @@ function solveBase(components: PlacedComponent[]): SolveResult {
 
   // ----- 3. Identify "active" connected components: those containing a source -----
   const compHasSource = new Set<number>();
+  const compHasClosedSource = new Set<number>();
   const compHasConsumer = new Set<number>();
   const compHasOpenSwitch = new Set<number>();
+  const compOpenSwitchIds = new Map<number, Set<string>>();
+  const addOpenSwitch = (cc: number | undefined, id: string) => {
+    if (cc == null) return;
+    compHasOpenSwitch.add(cc);
+    if (!compOpenSwitchIds.has(cc)) compOpenSwitchIds.set(cc, new Set());
+    compOpenSwitchIds.get(cc)!.add(id);
+  };
   // Track open-switch components separately (an open switch cuts the path).
   for (const ce of eps) {
     const cc = compOfNode.get(uf.find(ce.nodes[0]));
@@ -310,7 +318,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
     if (k === "battery") {
       compHasSource.add(cc);
       if (hasExternalPath(uf.find(ce.nodes[0]), uf.find(ce.nodes[1]), externalAdj)) {
-        compHasConsumer.add(cc);
+        compHasClosedSource.add(cc);
       }
     }
     if (k === "resistor") compHasConsumer.add(cc);
@@ -322,8 +330,8 @@ function solveBase(components: PlacedComponent[]): SolveResult {
       const b = uf.find(ce.nodes[1]);
       const ca = compOfNode.get(a);
       const cb = compOfNode.get(b);
-      if (ca != null) compHasOpenSwitch.add(ca);
-      if (cb != null && cb !== ca) compHasOpenSwitch.add(cb);
+      addOpenSwitch(ca, ce.c.id);
+      if (cb !== ca) addOpenSwitch(cb, ce.c.id);
     }
   }
 
@@ -340,7 +348,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
   }[] = [];
   const ccActiveNodes = new Map<number, Set<number>>();
 
-  for (const cc of compHasSource) {
+  for (const cc of compHasClosedSource) {
     const nodes: number[] = [];
     for (const [n, c] of compOfNode) if (c === cc) nodes.push(n);
     if (nodes.length === 0) continue;
@@ -362,7 +370,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
     const a = uf.find(ce.nodes[0]);
     const b = uf.find(ce.nodes[1]);
     const cc = compOfNode.get(a);
-    if (cc == null || !compHasSource.has(cc)) continue;
+    if (cc == null || !compHasClosedSource.has(cc)) continue;
     // Diode: forward direction = a→b (terminal 0 → terminal 1).
     const v = num(ce.c.voltage) ?? DIODE_DROP_DEFAULT;
     vSourceList.push({ ce, v, nA: a, nB: b, idx: vSourceList.length, cc });
@@ -385,7 +393,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
       const a = uf.find(ce.nodes[0]);
       const b = uf.find(ce.nodes[1]);
       const cc = compOfNode.get(a);
-      if (cc == null || !compHasSource.has(cc)) continue;
+      if (cc == null || !compHasClosedSource.has(cc)) continue;
       const g = 1 / r;
       const ia = nodeIdxFinal.get(a);
       const ib = nodeIdxFinal.get(b);
@@ -429,7 +437,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
   // ----- 5. Loop coloring per active component -----
   const ccLoopId = new Map<number, number>();
   let nextLoop = 0;
-  for (const cc of compHasSource) {
+  for (const cc of compHasClosedSource) {
     if (!compHasConsumer.has(cc)) continue; // skip "missing_consumer" comps
     if (compHasOpenSwitch.has(cc)) continue; // skip "switch_open" comps
     ccLoopId.set(cc, nextLoop);
@@ -473,7 +481,7 @@ function solveBase(components: PlacedComponent[]): SolveResult {
     const Vb = Vnode(b);
     const dV = Va - Vb;
     const k = kindOf(ce.c);
-    const isPoweredCc = cc != null && compHasSource.has(cc);
+    const isPoweredCc = cc != null && ccLoopId.has(cc);
 
     if (k === "resistor") {
       if (!isPoweredCc) continue;
@@ -542,9 +550,13 @@ function solveBase(components: PlacedComponent[]): SolveResult {
       cy += ce.c.y;
       n++;
     }
+    compOpenSwitchIds.get(cc)?.forEach((id) => {
+      if (!ids.includes(id)) ids.push(id);
+    });
     if (n === 0) continue;
-    let reason: "missing_consumer" | "switch_open" = "missing_consumer";
+    let reason: "missing_return" | "missing_consumer" | "switch_open" = "missing_return";
     if (compHasOpenSwitch.has(cc)) reason = "switch_open";
+    else if (!compHasClosedSource.has(cc)) reason = "missing_return";
     else if (!compHasConsumer.has(cc)) reason = "missing_consumer";
     result.openWarnings.push({
       centerX: cx / n,
