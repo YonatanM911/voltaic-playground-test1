@@ -59,6 +59,9 @@ export function LabToolbar({
       <Button size="icon" variant="ghost" onClick={onZoomIn} title="זום אין"><ZoomIn className="size-5" /></Button>
       <Button size="icon" variant="ghost" onClick={onZoomOut} title="זום אאוט"><ZoomOut className="size-5" /></Button>
       <Button size="icon" variant="ghost" onClick={onFocus} title="מקד מצלמה (F)"><Crosshair className="size-5" /></Button>
+      <span className="mx-1 h-6 w-px bg-border" />
+      <Button size="icon" variant="ghost" onClick={onUndo} disabled={!canUndo} title="בטל (Ctrl+Z)"><Undo2 className="size-5" /></Button>
+      <Button size="icon" variant="ghost" onClick={onRedo} disabled={!canRedo} title="בצע שוב (Ctrl+Y / Ctrl+Shift+Z)"><Redo2 className="size-5" /></Button>
       <Button size="icon" variant="ghost" onClick={onClear} title="נקה לוח"><Trash2 className="size-5" /></Button>
       <div className="relative ms-1 flex items-center">
         <Search className="pointer-events-none absolute end-2 size-3.5 text-muted-foreground" />
