@@ -502,7 +502,7 @@ export function solve(components: PlacedComponent[]): SolveResult {
     }
   }
 
-  computeLogicGateReadings(eps, uf, result, Vnode, xSol != null);
+  computeLogicGateReadings(eps, uf, result, Vnode, xSol != null, compOfNode, ccLoopId);
 
   // ----- 7. Open warnings -----
   for (const cc of compHasSource) {
@@ -661,24 +661,43 @@ function computeLogicGateReadings(
   result: SolveResult,
   Vnode: (n: number) => number,
   hasAnalogSolution: boolean,
+  compOfNode: Map<number, number>,
+  ccLoopId: Map<number, number>,
 ) {
-  const nodeLogic = new Map<number, 0 | 1>();
-  for (const ce of eps) {
-    if (ce.c.type !== "battery" || ce.c.closed === false) continue;
-    const v = num(ce.c.voltage);
-    if (v == null) continue;
-    const highNode = uf.find(ce.nodes[1]);
-    const lowNode = uf.find(ce.nodes[0]);
-    nodeLogic.set(highNode, v >= 0.5 ? 1 : 0);
-    nodeLogic.set(lowNode, 0);
-  }
+  type LogicSignal = { value: 0 | 1; loopId: number | null };
+  const nodeLogic = new Map<number, LogicSignal>();
+
+  const setNodeLogic = (root: number, next: LogicSignal): boolean => {
+    const prev = nodeLogic.get(root);
+    if (prev && prev.value === next.value && prev.loopId === next.loopId) return false;
+    nodeLogic.set(root, next);
+    return true;
+  };
+
+  const activeLoopForNode = (node: number): number | null => {
+    const cc = compOfNode.get(uf.find(node));
+    if (cc == null) return null;
+    return ccLoopId.get(cc) ?? null;
+  };
+
   if (hasAnalogSolution) {
     for (const ce of eps) {
       for (const node of ce.nodes) {
         const root = uf.find(node);
-        nodeLogic.set(root, Vnode(root) >= 0.5 ? 1 : 0);
+        const loopId = activeLoopForNode(root);
+        if (loopId == null) continue;
+        setNodeLogic(root, { value: Vnode(root) >= 0.5 ? 1 : 0, loopId });
       }
     }
+  }
+  for (const ce of eps) {
+    if (ce.c.type !== "battery" || ce.c.closed === false) continue;
+    const loopId = activeLoopForNode(ce.nodes[0]);
+    if (loopId == null) continue;
+    const highNode = uf.find(ce.nodes[1]);
+    const lowNode = uf.find(ce.nodes[0]);
+    setNodeLogic(highNode, { value: 1, loopId });
+    setNodeLogic(lowNode, { value: 0, loopId });
   }
 
   const gates = eps.filter((ce) => isLogicGate(ce.c.type));
@@ -686,20 +705,26 @@ function computeLogicGateReadings(
     let changed = false;
     for (const gate of gates) {
       const inputCount = gateInputCount(gate.c.type);
-      const inputNodes = gate.nodes.slice(0, inputCount);
-      const output = evaluateGate(
-        gate.c.type,
-        inputNodes.map((n) => nodeLogic.get(uf.find(n)) ?? 0),
-      );
-      const outputNode = uf.find(gate.nodes[gate.nodes.length - 1]);
-      if (nodeLogic.get(outputNode) !== output) {
-        nodeLogic.set(outputNode, output);
-        changed = true;
-      }
+      const inputSignals = gate.nodes
+        .slice(0, inputCount)
+        .map((n) => nodeLogic.get(uf.find(n)));
       const sc = result.components[gate.c.id];
-      sc.voltage = output;
+      sc.voltage = null;
       sc.current = null;
       sc.resistance = null;
+      sc.inActiveLoop = false;
+      sc.loopId = null;
+      if (inputSignals.some((signal) => signal == null)) continue;
+      const output = evaluateGate(
+        gate.c.type,
+        inputSignals.map((signal) => signal!.value),
+      );
+      const loopId = inputSignals.find((signal) => signal?.loopId != null)?.loopId ?? null;
+      const outputNode = uf.find(gate.nodes[gate.nodes.length - 1]);
+      changed = setNodeLogic(outputNode, { value: output, loopId }) || changed;
+      sc.voltage = output;
+      sc.inActiveLoop = loopId != null;
+      sc.loopId = loopId;
     }
     if (!changed) break;
   }

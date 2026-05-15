@@ -192,10 +192,10 @@ function gateSymbol(kind: GateKind, stroke: string) {
   }
 
   // Two-input style. Inputs at left, output at right tip.
-  const inputStubsTop = (
+  const inputStubsTo = (x2: number) => (
     <>
-      <line x1={-60} y1={-20} x2={bodyStart} y2={-20} stroke={stroke} strokeWidth={3} />
-      <line x1={-60} y1={20} x2={bodyStart} y2={20} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={-20} x2={x2} y2={-20} stroke={stroke} strokeWidth={3} />
+      <line x1={-60} y1={20} x2={x2} y2={20} stroke={stroke} strokeWidth={3} />
     </>
   );
 
@@ -204,7 +204,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
     const r = 26;
     return (
       <g>
-        {inputStubsTop}
+        {inputStubsTo(bodyStart)}
         <path
           d={`M ${bodyStart} -26 L 8 -26 A ${r} ${r} 0 0 1 8 26 L ${bodyStart} 26 Z`}
           fill="none"
@@ -220,6 +220,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
 
   if (kind === "or" || kind === "nor" || kind === "xor" || kind === "xnor") {
     // OR-shape: curved back, two side curves meeting at tip on right.
+    const inputJoinX = -30;
     const back = `M ${bodyStart} -26 Q -14 0 ${bodyStart} 26`;
     const top = `M ${bodyStart} -26 Q 12 -26 ${tipX} 0`;
     const bot = `M ${bodyStart} 26 Q 12 26 ${tipX} 0`;
@@ -229,7 +230,7 @@ function gateSymbol(kind: GateKind, stroke: string) {
       ) : null;
     return (
       <g>
-        {inputStubsTop}
+        {inputStubsTo(inputJoinX)}
         {xorBack}
         <path d={back} fill="none" stroke={stroke} strokeWidth={3} />
         <path d={top} fill="none" stroke={stroke} strokeWidth={3} />
