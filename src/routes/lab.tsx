@@ -527,6 +527,8 @@ function LabPage() {
     cutToClipboard,
     copySelected,
     focusCamera,
+    undo,
+    redo,
     selectedIds,
   ]);
 
