@@ -118,27 +118,6 @@ function solveLinear(A: number[][], b: number[]): number[] | null {
   return x;
 }
 
-// ---------- Geometry ----------
-function pointOnSegment(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  tol = 2,
-): boolean {
-  const dx = bx - ax,
-    dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return false;
-  const t = ((px - ax) * dx + (py - ay) * dy) / len2;
-  if (t <= 0.05 || t >= 0.95) return false;
-  const cx = ax + t * dx,
-    cy = ay + t * dy;
-  return (px - cx) ** 2 + (py - cy) ** 2 <= tol * tol;
-}
-
 // ---------- Component classification ----------
 type Kind =
   | "wire" // zero R bridge: wire / connector / closed switch / gates
@@ -232,25 +211,6 @@ export function solve(components: PlacedComponent[]): SolveResult {
     } else {
       const [t0, t1] = terminalPositions(c);
       eps.push({ c, nodes: [nodeId(t0.x, t0.y), nodeId(t1.x, t1.y)] });
-    }
-  }
-
-  // T-junction merging via wires
-  for (const we of eps) {
-    if (we.c.type !== "wire") continue;
-    const [wa, wb] = terminalPositions(we.c);
-    for (const ce of eps) {
-      if (ce.c.id === we.c.id) continue;
-      const positions = isConnector(ce.c.type)
-        ? allTerminalPositions(ce.c)
-        : isLogicGate(ce.c.type)
-          ? allTerminalPositions(ce.c)
-          : terminalPositions(ce.c);
-      for (const p of positions) {
-        if (pointOnSegment(p.x, p.y, wa.x, wa.y, wb.x, wb.y)) {
-          uf.union(nodeId(p.x, p.y), nodeId(wa.x, wa.y));
-        }
-      }
     }
   }
 

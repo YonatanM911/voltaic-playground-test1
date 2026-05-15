@@ -43,6 +43,8 @@ interface Props {
   settings: AppSettings;
 }
 
+const TERMINAL_RADIUS = 4.5;
+
 interface DragState {
   kind: "pan" | "comp" | "marquee";
   compId?: string;
@@ -477,6 +479,18 @@ export function LabCanvas({
                   />
                 )}
                 <PlacedSymbol c={c} color={color} bulbLit={lit} />
+                {allTerminalPositions(c).map((p, index) => (
+                  <circle
+                    key={`${c.id}-terminal-${index}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={TERMINAL_RADIUS}
+                    fill="var(--background)"
+                    stroke={color ?? "var(--foreground)"}
+                    strokeWidth={1.8}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
                 {settings.showNames && (
                   <text
                     x={c.x}

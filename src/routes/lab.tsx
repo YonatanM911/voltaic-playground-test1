@@ -153,7 +153,14 @@ function LabPage() {
           components?: PlacedComponent[];
           view?: { x: number; y: number; zoom: number };
         };
-        if (parsed.components) setComponents(parsed.components);
+        if (parsed.components) {
+          applyingHistoryRef.current = true;
+          pastRef.current = [];
+          futureRef.current = [];
+          lastCommittedRef.current = parsed.components;
+          setComponents(parsed.components);
+          setHistoryTick((t) => t + 1);
+        }
         if (parsed.view) setView(parsed.view);
       }
     } catch {
