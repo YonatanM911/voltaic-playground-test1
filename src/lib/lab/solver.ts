@@ -265,12 +265,20 @@ export function solve(components: PlacedComponent[]): SolveResult {
   // A component "conducts" if it can carry current: wire/battery/resistor/diode.
   // Voltmeters/ohmmeters/multimeters/open switches do NOT conduct.
   const adj = new Map<number, Set<number>>();
+  const externalAdj = new Map<number, Set<number>>();
   const linkAdj = (a: number, b: number) => {
     if (a === b) return;
     if (!adj.has(a)) adj.set(a, new Set());
     if (!adj.has(b)) adj.set(b, new Set());
     adj.get(a)!.add(b);
     adj.get(b)!.add(a);
+  };
+  const linkExternalAdj = (a: number, b: number) => {
+    if (a === b) return;
+    if (!externalAdj.has(a)) externalAdj.set(a, new Set());
+    if (!externalAdj.has(b)) externalAdj.set(b, new Set());
+    externalAdj.get(a)!.add(b);
+    externalAdj.get(b)!.add(a);
   };
   for (const ce of eps) {
     const k = kindOf(ce.c);
@@ -284,7 +292,11 @@ export function solve(components: PlacedComponent[]): SolveResult {
     )
       continue;
     const a = uf.find(ce.nodes[0]);
-    for (let i = 1; i < ce.nodes.length; i++) linkAdj(a, uf.find(ce.nodes[i]));
+    for (let i = 1; i < ce.nodes.length; i++) {
+      const b = uf.find(ce.nodes[i]);
+      linkAdj(a, b);
+      if (k !== "battery") linkExternalAdj(a, b);
+    }
   }
 
   // Connected components of the conducting graph
@@ -313,7 +325,12 @@ export function solve(components: PlacedComponent[]): SolveResult {
     const cc = compOfNode.get(uf.find(ce.nodes[0]));
     if (cc == null) continue;
     const k = kindOf(ce.c);
-    if (k === "battery") compHasSource.add(cc);
+    if (k === "battery") {
+      compHasSource.add(cc);
+      if (hasExternalPath(uf.find(ce.nodes[0]), uf.find(ce.nodes[1]), externalAdj)) {
+        compHasConsumer.add(cc);
+      }
+    }
     if (k === "resistor") compHasConsumer.add(cc);
     if (ce.c.type === "switch" && !ce.c.closed) {
       // If the switch were closed, would it bridge two nodes that otherwise
@@ -659,6 +676,22 @@ function isResistanceMeasurementPowered(
     }
   }
 
+  return false;
+}
+
+function hasExternalPath(start: number, end: number, adj: Map<number, Set<number>>): boolean {
+  if (start === end) return true;
+  const seen = new Set<number>();
+  const q = [start];
+  while (q.length) {
+    const n = q.shift()!;
+    if (n === end) return true;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    adj.get(n)?.forEach((next) => {
+      if (!seen.has(next)) q.push(next);
+    });
+  }
   return false;
 }
 
